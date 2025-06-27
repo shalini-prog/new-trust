@@ -1,6 +1,7 @@
-'use client';
+  'use client';
 
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { 
   Shield, 
   Users, 
@@ -25,7 +26,7 @@ import {
 } from 'lucide-react';
 
 interface Partner {
-  id: string;
+  _id: string;
   name: string;
   logo: string;
   website: string;
@@ -41,18 +42,6 @@ interface TrustMetrics {
   transparency_score: number;
   impact_reports_published: number;
   certification_level: string;
-}
-
-interface Report {
-  id: string;
-  title: string;
-  type: string;
-  period: string;
-  description: string;
-  created_date: string;
-  file_url: string;
-  icon: any;
-  color: string;
 }
 
 export default function TrustSectionAdmin() {
@@ -90,173 +79,485 @@ export default function TrustSectionAdmin() {
   ]);
 
   const [trustMetrics, setTrustMetrics] = useState<TrustMetrics>({
-    total_partners: 15,
-    verified_partners: 12,
+    total_partners: 3,
+    verified_partners: 3,
     transparency_score: 94,
     impact_reports_published: 4,
-    certification_level: 'Gold Standard'
+    certification_level: 'Gold'
   });
 
-  const [reports] = useState<Report[]>([
+  // Recent activities state
+  const [recentActivities, setRecentActivities] = useState([
     {
-      id: '1',
-      title: 'Annual Impact Report',
-      type: 'impact',
-      period: 'Q4 2024',
-      description: 'Comprehensive overview of organizational activities and partner collaborations',
-      created_date: '2024-12-15',
-      file_url: '/reports/annual-impact-2024.pdf',
+      id: 1,
+      type: 'partner_verified',
+      message: 'New partner verified: Habitat for Humanity',
+      timestamp: new Date().toISOString(),
+      icon: CheckCircle,
+      color: 'text-green-500'
+    },
+    {
+      id: 2,
+      type: 'report_published',
+      message: 'Q4 Impact Report published',
+      timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
       icon: FileText,
-      color: 'blue'
+      color: 'text-blue-500'
     },
     {
-      id: '2',
-      title: 'Partnership Metrics',
-      type: 'metrics',
-      period: 'Monthly',
-      description: 'Detailed breakdown of partnership performance and collaboration outcomes',
-      created_date: '2024-12-01',
-      file_url: '/reports/partnership-metrics-dec.pdf',
-      icon: BarChart3,
-      color: 'green'
-    },
-    {
-      id: '3',
-      title: 'Transparency Audit',
-      type: 'audit',
-      period: 'Quarterly',
-      description: 'Third-party verification of transparency and accountability measures',
-      created_date: '2024-10-30',
-      file_url: '/reports/transparency-audit-q3.pdf',
-      icon: Shield,
-      color: 'purple'
+      id: 3,
+      type: 'score_increase',
+      message: 'Transparency score increased to 94%',
+      timestamp: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
+      icon: TrendingUp,
+      color: 'text-purple-500'
     }
   ]);
 
   const [activeTab, setActiveTab] = useState('overview');
   const [isEditing, setIsEditing] = useState(false);
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
-  const [showAddPartner, setShowAddPartner] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportType, setReportType] = useState('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [showAddPartnerModal, setShowAddPartnerModal] = useState(false);
+  const [showViewPartnerModal, setShowViewPartnerModal] = useState(false);
   const [viewingPartner, setViewingPartner] = useState<Partner | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-
-  // Create new partner template
-  const createNewPartner = (): Partner => ({
-    id: Date.now().toString(),
+  const [newPartner, setNewPartner] = useState<Partial<Partner>>({
     name: '',
-    logo: '',
     website: '',
-    status: 'active',
-    partnership_since: new Date().toISOString().split('T')[0],
     description: '',
-    contact_email: ''
+    contact_email: '',
+    status: 'active',
+    partnership_since: new Date().toISOString().split('T')[0]
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  // Handle adding new partner
-  const handleAddPartner = () => {
-    setEditingPartner(createNewPartner());
-    setShowAddPartner(true);
+  // Update trust metrics when partners change
+  const updateTrustMetrics = (partnersList: Partner[]) => {
+    const activePartners = partnersList.filter(p => p.status === 'active');
+    setTrustMetrics(prev => ({
+      ...prev,
+      total_partners: partnersList.length,
+      verified_partners: activePartners.length
+    }));
   };
 
-  // Handle editing existing partner
+  // Add activity to recent activities
+  const addRecentActivity = (type: string, message: string, iconComponent: any, color: string) => {
+    const newActivity = {
+      _id: Date.now(),
+      type,
+      message,
+      timestamp: new Date().toISOString(),
+      icon: iconComponent,
+      color
+    };
+    setRecentActivities(prev => [newActivity, ...prev.slice(0, 4)]); // Keep only 5 most recent
+  };
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const res = await axios.get('http://localhost:5000/api/vtrust');
+        const data = res.data;
+
+        // Handle API response with fallback to defaults
+        if (data.partners && Array.isArray(data.partners)) {
+          setPartners(data.partners);
+
+          
+        }
+
+        if (data.trustMetrics) {
+          setTrustMetrics(data.trustMetrics);
+        }
+      } catch (err) {
+        console.error('Failed to load trust section:', err);
+        setError('Failed to load data from server, using local data');
+        // Use default data when API fails
+        updateTrustMetrics(partners);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Handle viewing partner details (Eye icon functionality)
+  const handleViewPartner = (partnerId: string) => {
+    // Use local data directly since individual partner endpoints aren't working
+    const partner = partners.find(p => p._id === partnerId);
+    if (partner) {
+      setViewingPartner(partner);
+      setShowViewPartnerModal(true);
+    } else {
+      setError('Partner not found');
+    }
+  };
+
+  const handleGenerateReport = () => {
+    setShowReportModal(true);
+  };
+
+  const handleDownloadReport = (reportName: string, reportType: string) => {
+    const reportData = generateReportData(reportType);
+    const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${reportName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    addRecentActivity('report_generated', `${reportName} generated and downloaded`, FileText, 'text-blue-500');
+  };
+
+  const handleViewReport = (reportName: string, reportType: string) => {
+    const reportData = generateReportData(reportType);
+    const reportWindow = window.open('', '_blank');
+    if (reportWindow) {
+      reportWindow.document.write(`
+        <html>
+          <head>
+            <title>${reportName}</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+              h1 { color: #2563eb; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
+              h2 { color: #374151; margin-top: 30px; }
+              .metric { background: #f9fafb; padding: 10px; margin: 10px 0; border-left: 4px solid #3b82f6; }
+              .partners { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+              .partner-card { border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; }
+              table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+              th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+              th { background: #f3f4f6; }
+            </style>
+          </head>
+          <body>
+            ${generateReportHTML(reportName, reportData)}
+          </body>
+        </html>
+      `);
+    }
+  };
+
+  const generateReportData = (type: string) => {
+    const baseData = {
+      generatedAt: new Date().toISOString(),
+      trustMetrics,
+      partners: partners.filter(p => p.status === 'active')
+    };
+
+    switch (type) {
+      case 'impact':
+        return {
+          ...baseData,
+          type: 'Annual Impact Report',
+          partnershipGrowth: Math.round(((trustMetrics.total_partners - 1) / Math.max(1, trustMetrics.total_partners)) * 100)
+        };
+      case 'partnership':
+        return {
+          ...baseData,
+          type: 'Partnership Analysis Report',
+          partnerAnalysis: partners.map(partner => ({
+            name: partner.name,
+            status: partner.status,
+            duration: Math.floor((new Date().getTime() - new Date(partner.partnership_since).getTime()) / (1000 * 3600 * 24 * 365)),
+            description: partner.description
+          }))
+        };
+      case 'transparency':
+        return {
+          ...baseData,
+          type: 'Transparency Audit Report',
+          auditScore: trustMetrics.transparency_score,
+          verificationRate: Math.round((trustMetrics.verified_partners / Math.max(1, trustMetrics.total_partners)) * 100),
+          complianceMetrics: {
+            dataAccuracy: 98,
+            reportingTimeliness: 95,
+            stakeholderCommunication: 92,
+            financialTransparency: 96
+          },
+          recommendations: [
+            'Continue quarterly transparency audits',
+            'Enhance partner verification processes',
+            'Implement real-time reporting dashboard',
+            'Expand stakeholder feedback mechanisms'
+          ]
+        };
+      default:
+        return baseData;
+    }
+  };
+
+  const generateReportHTML = (title: string, data: any) => {
+    switch (data.type) {
+      case 'Annual Impact Report':
+        return `
+          <h1>${title}</h1>
+          <p><strong>Generated:</strong> ${new Date(data.generatedAt).toLocaleString()}</p>
+          
+          <h2>Executive Summary</h2>
+          <div class="metric">
+            <strong>Active Partnerships:</strong> ${data.partners.length}
+          </div>
+          <div class="metric">
+            <strong>Partnership Growth:</strong> ${data.partnershipGrowth}%
+          </div>
+          <div class="metric">
+            <strong>Transparency Score:</strong> ${data.trustMetrics.transparency_score}%
+          </div>
+
+          <h2>Partner Organizations</h2>
+          <div class="partners">
+            ${data.partners.map((partner: Partner) => `
+              <div class="partner-card">
+                <h3>${partner.name}</h3>
+                <p><strong>Partnership Since:</strong> ${new Date(partner.partnership_since).toLocaleDateString()}</p>
+                <p><strong>Contact:</strong> ${partner.contact_email}</p>
+                <p>${partner.description}</p>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      
+      case 'Partnership Analysis Report':
+        return `
+          <h1>${title}</h1>
+          <p><strong>Generated:</strong> ${new Date(data.generatedAt).toLocaleString()}</p>
+          
+          <h2>Partnership Overview</h2>
+          <table>
+            <tr><th>Organization</th><th>Status</th><th>Years Active</th><th>Focus Area</th></tr>
+            ${data.partnerAnalysis.map((item: any) => `
+              <tr>
+                <td>${item.name}</td>
+                <td>${item.status}</td>
+                <td>${item.duration}</td>
+                <td>${item.description}</td>
+              </tr>
+            `).join('')}
+          </table>
+        `;
+      
+      case 'Transparency Audit Report':
+        return `
+          <h1>${title}</h1>
+          <p><strong>Generated:</strong> ${new Date(data.generatedAt).toLocaleString()}</p>
+          
+          <h2>Overall Scores</h2>
+          <div class="metric">
+            <strong>Transparency Score:</strong> ${data.auditScore}%
+          </div>
+          <div class="metric">
+            <strong>Partner Verification Rate:</strong> ${data.verificationRate}%
+          </div>
+
+          <h2>Compliance Metrics</h2>
+          <table>
+            <tr><th>Metric</th><th>Score</th></tr>
+            ${Object.entries(data.complianceMetrics).map(([key, value]) => `
+              <tr>
+                <td>${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}</td>
+                <td>${value}%</td>
+              </tr>
+            `).join('')}
+          </table>
+
+          <h2>Recommendations</h2>
+          <ul>
+            ${data.recommendations.map((rec: string) => `<li>${rec}</li>`).join('')}
+          </ul>
+        `;
+      
+      default:
+        return `<h1>${title}</h1><pre>${JSON.stringify(data, null, 2)}</pre>`;
+    }
+  };
+
+  const confirmGenerateReport = () => {
+    setIsGeneratingReport(true);
+    
+    setTimeout(() => {
+      const reportName = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`;
+      handleDownloadReport(reportName, reportType);
+      setIsGeneratingReport(false);
+      setShowReportModal(false);
+      setReportType('');
+    }, 2000);
+  };
+
+  const handleAddPartner = () => {
+    setShowAddPartnerModal(true);
+  };
+
+  const handleSaveNewPartner = async () => {
+    if (!newPartner.name || !newPartner.contact_email || !newPartner.website) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const partnerToAdd = {
+  ...newPartner,
+  logo: '/images/partners/default.svg'
+} as Omit<Partner, '_id'>; // Let backend generate _id
+
+
+      // Try API call first, but don't fail if it doesn't work
+      try {
+        const response = await axios.post('http://localhost:5000/api/vtrust/partner', {
+          partner: partnerToAdd
+        });
+        
+        if (response.data && response.data.partners) {
+          setPartners(response.data.partners);
+          updateTrustMetrics(response.data.partners);
+        } else {
+          throw new Error('Invalid API response');
+        }
+      } catch (apiError) {
+        console.warn('API call failed, updating locally:', apiError);
+        // Fallback: update local state
+        const updatedPartners = [...partners, partnerToAdd];
+        setPartners(updatedPartners);
+        updateTrustMetrics(updatedPartners);
+      }
+      
+      // Add to recent activities
+      addRecentActivity('partner_added', `New partner added: ${partnerToAdd.name}`, Plus, 'text-green-500');
+      
+      // Reset form and close modal
+      setNewPartner({
+        name: '',
+        website: '',
+        description: '',
+        contact_email: '',
+        status: 'active',
+        partnership_since: new Date().toISOString().split('T')[0]
+      });
+      setShowAddPartnerModal(false);
+      setError('');
+      
+    } catch (err) {
+      console.error('Failed to add partner:', err);
+      setError('Failed to add partner. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleEditPartner = (partner: Partner) => {
     setEditingPartner({ ...partner });
     setIsEditing(true);
   };
 
-  // Handle saving partner (both new and edited)
-  const handleSavePartner = () => {
-    if (editingPartner) {
-      if (showAddPartner) {
-        // Adding new partner
-        setPartners(prev => [...prev, editingPartner]);
-        setTrustMetrics(prev => ({
-          ...prev,
-          total_partners: prev.total_partners + 1,
-          verified_partners: prev.verified_partners + 1
-        }));
-        setShowAddPartner(false);
-      } else {
-        // Editing existing partner
-        setPartners(prev => 
-          prev.map(p => p.id === editingPartner.id ? editingPartner : p)
+  const handleSavePartner = async () => {
+    if (!editingPartner) return;
+
+    setLoading(true);
+    try {
+      // Try API call first, but fallback to local update if it fails
+      try {
+        const response = await axios.put(`http://localhost:5000/api/vtrust/partner/${editingPartner._id}`, {
+          partner: editingPartner
+        });
+
+        if (response.data && response.data.partners) {
+          setPartners(response.data.partners);
+          updateTrustMetrics(response.data.partners);
+        } else {
+          throw new Error('Invalid API response');
+        }
+      } catch (apiError) {
+        console.warn('API call failed, updating locally:', apiError);
+        // Fallback: update local state
+        const updatedPartners = partners.map(p => 
+          p._id === editingPartner._id ? editingPartner : p
         );
-        setIsEditing(false);
+        setPartners(updatedPartners);
+        updateTrustMetrics(updatedPartners);
       }
+      
+      // Add to recent activities
+      addRecentActivity('partner_updated', `Partner updated: ${editingPartner.name}`, Edit, 'text-blue-500');
+      
       setEditingPartner(null);
+      setIsEditing(false);
+      setError('');
+      
+    } catch (err) {
+      console.error('Failed to save partner:', err);
+      setError('Failed to save partner changes. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Handle viewing partner details
-  const handleViewPartner = (partner: Partner) => {
-    setViewingPartner(partner);
-  };
+  const handleDeletePartner = async (_id: string) => {
+    if (!confirm('Are you sure you want to delete this partner?')) return;
 
-  // Handle deleting partner with confirmation
-  const handleDeletePartner = (id: string) => {
-    setShowDeleteConfirm(id);
-  };
-
-  const confirmDeletePartner = (id: string) => {
-    setPartners(prev => prev.filter(p => p.id !== id));
-    setTrustMetrics(prev => ({
-      ...prev,
-      total_partners: prev.total_partners - 1,
-      verified_partners: Math.max(0, prev.verified_partners - 1)
-    }));
-    setShowDeleteConfirm(null);
-  };
-
-  // Handle report download
-  const handleDownloadReport = (report: Report) => {
-    // Simulate download
-    const link = document.createElement('a');
-    link.href = report.file_url;
-    link.download = `${report.title.replace(/\s+/g, '-').toLowerCase()}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Handle report viewing
-  const handleViewReport = (report: Report) => {
-    // Open report in new tab
-    window.open(report.file_url, '_blank');
-  };
-
-  // Handle generating new report
-  const handleGenerateReport = () => {
-    alert('Report generation feature would integrate with your reporting system');
-  };
-
-  // Cancel editing/adding
-  const handleCancel = () => {
-    setIsEditing(false);
-    setShowAddPartner(false);
-    setEditingPartner(null);
+    setLoading(true);
+    try {
+      const partnerToDelete = partners.find(p => p._id === _id);
+      
+      // Try API call first, but fallback to local update if it fails
+      try {
+        const response = await axios.delete(`http://localhost:5000/api/vtrust/partner/${_id}`);
+        
+        if (response.data && response.data.partners) {
+          setPartners(response.data.partners);
+          updateTrustMetrics(response.data.partners);
+        } else {
+          throw new Error('Invalid API response');
+        }
+      } catch (apiError) {
+        console.warn('API call failed, updating locally:', apiError);
+        // Fallback: update local state
+        const updatedPartners = partners.filter(p => p._id !== _id);
+        setPartners(updatedPartners);
+        updateTrustMetrics(updatedPartners);
+      }
+      
+      // Add to recent activities
+      if (partnerToDelete) {
+        addRecentActivity('partner_deleted', `Partner removed: ${partnerToDelete.name}`, Trash2, 'text-red-500');
+      }
+      
+      setError('');
+      
+    } catch (err) {
+      console.error('Failed to delete partner:', err);
+      setError('Failed to delete partner. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getStatusColor = (status: string) => {
     return status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800';
   };
 
-  const getColorClasses = (color: string) => {
-    const colorMap: { [key: string]: string } = {
-      blue: 'text-blue-600',
-      green: 'text-green-600',
-      purple: 'text-purple-600'
-    };
-    return colorMap[color] || 'text-gray-600';
+  const clearError = () => {
+    setError('');
   };
 
-  const getButtonColorClasses = (color: string) => {
-    const colorMap: { [key: string]: string } = {
-      blue: 'bg-blue-600 hover:bg-blue-700',
-      green: 'bg-green-600 hover:bg-green-700',
-      purple: 'bg-purple-600 hover:bg-purple-700'
-    };
-    return colorMap[color] || 'bg-gray-600 hover:bg-gray-700';
-  };
+  if (loading && partners.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading trust section data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -266,7 +567,21 @@ export default function TrustSectionAdmin() {
           <Shield className="h-8 w-8 text-blue-600" />
           <h1 className="text-3xl font-bold text-gray-900">Trust & Transparency Management</h1>
         </div>
-        <p className="text-gray-600">Manage partnerships, transparency metrics, and reporting</p>
+        <p className="text-gray-600">Manage partnerships and transparency metrics</p>
+        
+        {/* Error Display */}
+        {error && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md flex items-center space-x-3">
+            <AlertCircle className="h-5 w-5 text-red-500" />
+            <span className="text-red-700">{error}</span>
+            <button 
+              onClick={() => setError('')}
+              className="ml-auto text-red-500 hover:text-red-700"
+            >
+              ×
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Trust Metrics Overview */}
@@ -352,43 +667,77 @@ export default function TrustSectionAdmin() {
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Partner Status Overview</h3>
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <span className="text-gray-700">Active Partnerships</span>
-                      <span className="font-semibold text-green-600">
-                        {partners.filter(p => p.status === 'active').length}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
                       <span className="text-gray-700">Inactive Partnerships</span>
                       <span className="font-semibold text-gray-600">
                         {partners.filter(p => p.status === 'inactive').length}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-700">Verification Rate</span>
-                      <span className="font-semibold text-blue-600">
-                        {Math.round((trustMetrics.verified_partners / trustMetrics.total_partners) * 100)}%
-                      </span>
+                    <div className="mt-4 bg-white rounded-lg p-4">
+                      <div className="relative h-4 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="absolute top-0 left-0 h-full bg-green-500 transition-all duration-300"
+                          style={{ 
+                            width: `${(partners.filter(p => p.status === 'active').length / Math.max(1, partners.length)) * 100}%` 
+                          }}
+                        ></div>
+                      </div>
+                      <p className="text-sm text-gray-600 mt-2">
+                        {Math.round((partners.filter(p => p.status === 'active').length / Math.max(1, partners.length)) * 100)}% Active Rate
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Recent Activity */}
+                {/* Recent Activities */}
                 <div className="bg-gray-50 p-6 rounded-lg">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activities</h3>
                   <div className="space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span className="text-sm text-gray-700">New partner verified: Habitat for Humanity</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <FileText className="h-5 w-5 text-blue-500" />
-                      <span className="text-sm text-gray-700">Q4 Impact Report published</span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <TrendingUp className="h-5 w-5 text-purple-500" />
-                      <span className="text-sm text-gray-700">Transparency score increased to 94%</span>
-                    </div>
+                    {recentActivities.map((activity) => {
+                      const IconComponent = activity.icon;
+                      return (
+                        <div key={activity.id} className="flex items-start space-x-3">
+                          <IconComponent className={`h-5 w-5 mt-0.5 ${activity.color}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-900">{activity.message}</p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(activity.timestamp).toLocaleDateString()} at{' '}
+                              {new Date(activity.timestamp).toLocaleTimeString()}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="bg-blue-50 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <button
+                    onClick={handleAddPartner}
+                    className="flex items-center space-x-3 p-4 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <Plus className="h-6 w-6 text-blue-600" />
+                    <span className="font-medium text-gray-900">Add New Partner</span>
+                  </button>
+                  
+                  <button
+                    onClick={handleGenerateReport}
+                    className="flex items-center space-x-3 p-4 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <FileText className="h-6 w-6 text-green-600" />
+                    <span className="font-medium text-gray-900">Generate Report</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => setActiveTab('partners')}
+                    className="flex items-center space-x-3 p-4 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <Users className="h-6 w-6 text-purple-600" />
+                    <span className="font-medium text-gray-900">Manage Partners</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -399,79 +748,92 @@ export default function TrustSectionAdmin() {
             <div className="space-y-6">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-gray-900">Partner Organizations</h3>
-                <button 
+                <button
                   onClick={handleAddPartner}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center space-x-2"
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Plus className="h-4 w-4" />
                   <span>Add Partner</span>
                 </button>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Organization</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Partnership Since</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {partners.map((partner) => (
-                      <tr key={partner.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="h-10 w-10 bg-gray-100 rounded-lg flex items-center justify-center mr-3">
-                              <Building2 className="h-6 w-6 text-gray-600" />
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{partner.name}</div>
-                              <div className="text-sm text-gray-500">{partner.website}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {partner.contact_email}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(partner.partnership_since).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(partner.status)}`}>
+              {/* Partners Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {partners.map((partner) => (
+                  <div key={partner._id} className="bg-white p-6 rounded-lg shadow-sm border">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+                          <Building2 className="h-6 w-6 text-gray-600" />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-gray-900">{partner.name}</h4>
+                          <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(partner.status)}`}>
                             {partner.status}
                           </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                          <button 
-                            onClick={() => handleEditPartner(partner)}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="Edit partner"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleViewPartner(partner)}
-                            className="text-gray-600 hover:text-gray-900"
-                            title="View details"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeletePartner(partner.id)}
-                            className="text-red-600 hover:text-red-900"
-                            title="Delete partner"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => handleViewPartner(partner._id)}
+                          className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleEditPartner(partner)}
+                          className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Edit Partner"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeletePartner(partner._id)}
+                          className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                          title="Delete Partner"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm text-gray-600 line-clamp-3">{partner.description}</p>
+                      <div className="flex items-center space-x-2 text-sm text-gray-500">
+                        <Calendar className="h-4 w-4" />
+                        <span>Since {new Date(partner.partnership_since).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-sm text-gray-500">
+                        <Globe className="h-4 w-4" />
+                        <a 
+                          href={partner.website} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="hover:text-blue-600 transition-colors truncate"
+                        >
+                          {partner.website}
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
+
+              {partners.length === 0 && (
+                <div className="text-center py-12">
+                  <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No partners yet</h3>
+                  <p className="text-gray-600 mb-4">Get started by adding your first partner organization.</p>
+                  <button
+                    onClick={handleAddPartner}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Add First Partner
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -479,220 +841,631 @@ export default function TrustSectionAdmin() {
           {activeTab === 'reports' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-gray-900">Transparency Reports</h3>
-                <button 
+                <h3 className="text-lg font-semibold text-gray-900">Reports & Analytics</h3>
+                <button
                   onClick={handleGenerateReport}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center space-x-2"
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
-                  <Plus className="h-4 w-4" />
+                  <FileText className="h-4 w-4" />
                   <span>Generate Report</span>
                 </button>
               </div>
 
+              {/* Available Reports */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {reports.map((report) => {
-                  const IconComponent = report.icon;
-                  return (
-                    <div key={report.id} className="bg-white border rounded-lg p-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <IconComponent className={`h-8 w-8 ${getColorClasses(report.color)}`} />
-                        <span className="text-sm text-gray-500">{report.period}</span>
-                      </div>
-                      <h4 className="font-semibold text-gray-900 mb-2">{report.title}</h4>
-                      <p className="text-sm text-gray-600 mb-4">{report.description}</p>
-                      <div className="flex space-x-2">
-                        <button 
-                          onClick={() => handleDownloadReport(report)}
-                          className={`flex-1 px-3 py-2 text-white text-sm rounded ${getButtonColorClasses(report.color)}`}
-                        >
-                          Download
-                        </button>
-                        <button 
-                          onClick={() => handleViewReport(report)}
-                          className="px-3 py-2 border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50"
-                        >
-                          View
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <BarChart3 className="h-8 w-8 text-blue-600" />
+                    <h4 className="font-semibold text-gray-900">Impact Report</h4>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Comprehensive overview of partnership impact and growth metrics.
+                  </p>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleViewReport('Annual Impact Report', 'impact')}
+                      className="flex-1 px-3 py-2 text-sm bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition-colors"
+                    >
+                      <Eye className="h-4 w-4 inline mr-2" />
+                      View
+                    </button>
+                    <button
+                      onClick={() => handleDownloadReport('Annual Impact Report', 'impact')}
+                      className="flex-1 px-3 py-2 text-sm bg-gray-50 text-gray-700 rounded hover:bg-gray-100 transition-colors"
+                    >
+                      <Download className="h-4 w-4 inline mr-2" />
+                      Export
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <Users className="h-8 w-8 text-green-600" />
+                    <h4 className="font-semibold text-gray-900">Partnership Analysis</h4>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Detailed analysis of all partnership relationships and their effectiveness.
+                  </p>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleViewReport('Partnership Analysis Report', 'partnership')}
+                      className="flex-1 px-3 py-2 text-sm bg-green-50 text-green-700 rounded hover:bg-green-100 transition-colors"
+                    >
+                      <Eye className="h-4 w-4 inline mr-2" />
+                      View
+                    </button>
+                    <button
+                      onClick={() => handleDownloadReport('Partnership Analysis Report', 'partnership')}
+                      className="flex-1 px-3 py-2 text-sm bg-gray-50 text-gray-700 rounded hover:bg-gray-100 transition-colors"
+                    >
+                      <Download className="h-4 w-4 inline mr-2" />
+                      Export
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <Shield className="h-8 w-8 text-purple-600" />
+                    <h4 className="font-semibold text-gray-900">Transparency Audit</h4>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Transparency metrics, compliance scores, and audit recommendations.
+                  </p>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleViewReport('Transparency Audit Report', 'transparency')}
+                      className="flex-1 px-3 py-2 text-sm bg-purple-50 text-purple-700 rounded hover:bg-purple-100 transition-colors"
+                    >
+                      <Eye className="h-4 w-4 inline mr-2" />
+                      View
+                    </button>
+                    <button
+                      onClick={() => handleDownloadReport('Transparency Audit Report', 'transparency')}
+                      className="flex-1 px-3 py-2 text-sm bg-gray-50 text-gray-700 rounded hover:bg-gray-100 transition-colors"
+                    >
+                      <Download className="h-4 w-4 inline mr-2" />
+                      Export
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Report History */}
+              <div className="bg-gray-50 p-6 rounded-lg">
+                <h4 className="font-semibold text-gray-900 mb-4">Recent Report Activity</h4>
+                <div className="space-y-3">
+                  {recentActivities
+                    .filter(activity => activity.type.includes('report'))
+                    .slice(0, 5)
+                    .map((activity) => {
+                      const IconComponent = activity.icon;
+                      return (
+                        <div key={activity.id} className="flex items-center space-x-3 p-3 bg-white rounded-lg">
+                          <IconComponent className={`h-5 w-5 ${activity.color}`} />
+                          <div className="flex-1">
+                            <p className="text-sm text-gray-900">{activity.message}</p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(activity.timestamp).toLocaleDateString()} at{' '}
+                              {new Date(activity.timestamp).toLocaleTimeString()}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  
+                  {recentActivities.filter(activity => activity.type.includes('report')).length === 0 && (
+                    <p className="text-sm text-gray-500 text-center py-4">No recent report activity</p>
+                  )}
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Edit/Add Partner Modal */}
-      {(isEditing || showAddPartner) && editingPartner && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {showAddPartner ? 'Add New Partner' : 'Edit Partner'}
-              </h3>
-              <button onClick={handleCancel} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Organization Name *</label>
-                <input
-                  type="text"
-                  value={editingPartner.name}
-                  onChange={(e) => setEditingPartner({...editingPartner, name: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
-                <input
-                  type="url"
-                  value={editingPartner.website}
-                  onChange={(e) => setEditingPartner({...editingPartner, website: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="https://example.org"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Contact Email *</label>
-                <input
-                  type="email"
-                  value={editingPartner.contact_email}
-                  onChange={(e) => setEditingPartner({...editingPartner, contact_email: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
-                  value={editingPartner.description}
-                  onChange={(e) => setEditingPartner({...editingPartner, description: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                  rows={3}
-                  placeholder="Brief description of the organization"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Partnership Since</label>
-                <input
-                  type="date"
-                  value={editingPartner.partnership_since}
-                  onChange={(e) => setEditingPartner({...editingPartner, partnership_since: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={editingPartner.status}
-                  onChange={(e) => setEditingPartner({...editingPartner, status: e.target.value as 'active' | 'inactive'})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+      {/* Edit Partner Modal */}
+      {isEditing && editingPartner && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Edit Partner</h3>
+                <button
+                  onClick={() => {
+                    setIsEditing(false);
+                    setEditingPartner(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
+                  <X className="h-6 w-6" />
+                </button>
               </div>
-            </div>
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={handleSavePartner}
-                disabled={!editingPartner.name || !editingPartner.contact_email}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {showAddPartner ? 'Add Partner' : 'Save Changes'}
-              </button>
-              <button
-                onClick={handleCancel}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-              >
-                Cancel
-              </button>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Organization Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={editingPartner.name}
+                    onChange={(e) => setEditingPartner({ ...editingPartner, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter organization name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Website *
+                  </label>
+                  <input
+                    type="url"
+                    value={editingPartner.website}
+                    onChange={(e) => setEditingPartner({ ...editingPartner, website: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="https://example.org"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Contact Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={editingPartner.contact_email}
+                    onChange={(e) => setEditingPartner({ ...editingPartner, contact_email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="contact@example.org"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Partnership Since
+                  </label>
+                  <input
+                    type="date"
+                    value={editingPartner.partnership_since}
+                    onChange={(e) => setEditingPartner({ ...editingPartner, partnership_since: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={editingPartner.status}
+                    onChange={(e) => setEditingPartner({ ...editingPartner, status: e.target.value as 'active' | 'inactive' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={editingPartner.description}
+                    onChange={(e) => setEditingPartner({ ...editingPartner, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Brief description of the organization and partnership"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={handleSavePartner}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Changes
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setIsEditing(false);
+                    setEditingPartner(null);
+                  }}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* View Partner Modal */}
-      {viewingPartner && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Partner Details</h3>
-              <button onClick={() => setViewingPartner(null)} className="text-gray-400 hover:text-gray-600">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center space-x-3">
-                <Building2 className="h-8 w-8 text-gray-600" />
+      {/* Add Partner Modal */}
+      {showAddPartnerModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Add New Partner</h3>
+                <button
+                  onClick={() => {
+                    setShowAddPartnerModal(false);
+                    setNewPartner({
+                      name: '',
+                      website: '',
+                      description: '',
+                      contact_email: '',
+                      status: 'active',
+                      partnership_since: new Date().toISOString().split('T')[0]
+                    });
+                    setError('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
                 <div>
-                  <h4 className="font-semibold text-gray-900">{viewingPartner.name}</h4>
-                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(viewingPartner.status)}`}>
-                    {viewingPartner.status}
-                  </span>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Organization Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={newPartner.name || ''}
+                    onChange={(e) => setNewPartner({ ...newPartner, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter organization name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Website *
+                  </label>
+                  <input
+                    type="url"
+                    value={newPartner.website || ''}
+                    onChange={(e) => setNewPartner({ ...newPartner, website: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="https://example.org"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Contact Email *
+                  </label>
+                  <input
+                    type="email"
+                    value={newPartner.contact_email || ''}
+                    onChange={(e) => setNewPartner({ ...newPartner, contact_email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="contact@example.org"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Partnership Since
+                  </label>
+                  <input
+                    type="date"
+                    value={newPartner.partnership_since || ''}
+                    onChange={(e) => setNewPartner({ ...newPartner, partnership_since: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={newPartner.status || 'active'}
+                    onChange={(e) => setNewPartner({ ...newPartner, status: e.target.value as 'active' | 'inactive' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={newPartner.description || ''}
+                    onChange={(e) => setNewPartner({ ...newPartner, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Brief description of the organization and partnership"
+                  />
                 </div>
               </div>
-              <div className="border-t pt-4 space-y-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Website</label>
-                  <p className="text-sm text-gray-900">{viewingPartner.website || 'Not provided'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Contact Email</label>
-                  <p className="text-sm text-gray-900">{viewingPartner.contact_email}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Partnership Since</label>
-                  <p className="text-sm text-gray-900">
-                    {new Date(viewingPartner.partnership_since).toLocaleDateString()}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Description</label>
-                  <p className="text-sm text-gray-900">{viewingPartner.description || 'No description provided'}</p>
-                </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={handleSaveNewPartner}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Partner
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddPartnerModal(false);
+                    setNewPartner({
+                      name: '',
+                      website: '',
+                      description: '',
+                      contact_email: '',
+                      status: 'active',
+                      partnership_since: new Date().toISOString().split('T')[0]
+                    });
+                    setError('');
+                  }}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
               </div>
-            </div>
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={() => setViewingPartner(null)}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-sm">
-            <div className="flex items-center space-x-3 mb-4">
-              <AlertCircle className="h-6 w-6 text-red-600" />
-              <h3 className="text-lg font-semibold text-gray-900">Confirm Deletion</h3>
+      {/* View Partner Details Modal */}
+      {showViewPartnerModal && viewingPartner && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">Partner Details</h3>
+                <button
+                  onClick={() => {
+                    setShowViewPartnerModal(false);
+                    setViewingPartner(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Partner Header */}
+                <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                  <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
+                    <Building2 className="h-8 w-8 text-gray-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-xl font-semibold text-gray-900">{viewingPartner.name}</h4>
+                    <span className={`inline-block px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(viewingPartner.status)}`}>
+                      {viewingPartner.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Partner Details */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-500 mb-1">Website</label>
+                      <a 
+                        href={viewingPartner.website} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="flex items-center space-x-2 text-blue-600 hover:text-blue-800 transition-colors"
+                      >
+                        <Globe className="h-4 w-4" />
+                        <span className="break-all">{viewingPartner.website}</span>
+                      </a>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-500 mb-1">Contact Email</label>
+                      <a 
+                        href={`mailto:${viewingPartner.contact_email}`}
+                        className="text-blue-600 hover:text-blue-800 transition-colors break-all"
+                      >
+                        {viewingPartner.contact_email}
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-500 mb-1">Partnership Since</label>
+                      <div className="flex items-center space-x-2">
+                        <Calendar className="h-4 w-4 text-gray-600" />
+                        <span className="text-gray-900">
+                          {new Date(viewingPartner.partnership_since).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-500 mb-1">Partnership Duration</label>
+                      <span className="text-gray-900">
+                        {Math.floor((new Date().getTime() - new Date(viewingPartner.partnership_since).getTime()) / (1000 * 3600 * 24 * 365))} years
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-2">Description</label>
+                  <p className="text-gray-900 leading-relaxed">{viewingPartner.description}</p>
+                </div>
+
+                {/* Actions */}
+                <div className="flex space-x-3 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={() => {
+                      setShowViewPartnerModal(false);
+                      setViewingPartner(null);
+                      handleEditPartner(viewingPartner);
+                    }}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                    <Edit className="h-4 w-4" />
+                    <span>Edit Partner</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => window.open(viewingPartner.website, '_blank')}
+                    className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                  >
+                    <Globe className="h-4 w-4" />
+                    <span>Visit Website</span>
+                  </button>
+                </div>
+              </div>
             </div>
-            <p className="text-sm text-gray-600 mb-6">
-              Are you sure you want to delete this partner? This action cannot be undone.
-            </p>
-            <div className="flex space-x-3">
-              <button
-                onClick={() => confirmDeletePartner(showDeleteConfirm)}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              >
-                Delete
-              </button>
-              <button
-                onClick={() => setShowDeleteConfirm(null)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-              >
-                Cancel
-              </button>
+          </div>
+        </div>
+      )}
+
+      {/* Generate Report Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Generate Report</h3>
+                <button
+                  onClick={() => {
+                    setShowReportModal(false);
+                    setReportType('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Report Type
+                  </label>
+                  <div className="space-y-3">
+                    <label className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="reportType"
+                        value="impact"
+                        checked={reportType === 'impact'}
+                        onChange={(e) => setReportType(e.target.value)}
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2">
+                          <BarChart3 className="h-5 w-5 text-blue-600" />
+                          <span className="font-medium text-gray-900">Impact Report</span>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Comprehensive overview of partnership impact and growth metrics
+                        </p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="reportType"
+                        value="partnership"
+                        checked={reportType === 'partnership'}
+                        onChange={(e) => setReportType(e.target.value)}
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2">
+                          <Users className="h-5 w-5 text-green-600" />
+                          <span className="font-medium text-gray-900">Partnership Analysis</span>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Detailed analysis of all partnership relationships
+                        </p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="reportType"
+                        value="transparency"
+                        checked={reportType === 'transparency'}
+                        onChange={(e) => setReportType(e.target.value)}
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2">
+                          <Shield className="h-5 w-5 text-purple-600" />
+                          <span className="font-medium text-gray-900">Transparency Audit</span>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Transparency metrics and compliance scores
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={confirmGenerateReport}
+                  disabled={!reportType || isGeneratingReport}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                >
+                  {isGeneratingReport ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Generate & Download
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowReportModal(false);
+                    setReportType('');
+                  }}
+                  disabled={isGeneratingReport}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
