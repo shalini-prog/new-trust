@@ -9,7 +9,7 @@ export default function TransparencySection() {
   const pieChartRef = useRef<HTMLDivElement>(null);
   const [isClient, setIsClient] = useState(false);
   
-  // Fund allocation data
+  
   const fundAllocation = [
     { category: 'Direct Aid Programs', percentage: 65, color: '#6366f1' },
     { category: 'Education Initiatives', percentage: 20, color: '#8b5cf6' },
