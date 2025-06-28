@@ -4,8 +4,20 @@ import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import Image from 'next/image';
 import Link from 'next/link';
+import { 
+  Heart, 
+  Users, 
+  Globe, 
+  Shield, 
+  Award, 
+  Building2, 
+  CheckCircle, 
+  Download,
+  Loader2,
+  AlertCircle,
+  RefreshCw
+} from 'lucide-react';
 
 const TrustSection = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
@@ -13,6 +25,19 @@ const TrustSection = () => {
   const [trustMetrics, setTrustMetrics] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Icon mapping for different partner types
+  const getPartnerIcon = (partnerType) => {
+    const iconMap = {
+      'healthcare': Heart,
+      'education': Users,
+      'environment': Globe,
+      'security': Shield,
+      'charity': Award,
+      'default': Building2
+    };
+    return iconMap[partnerType] || iconMap.default;
+  };
 
   // Fetch partners and trust metrics from database
   useEffect(() => {
@@ -69,7 +94,7 @@ const TrustSection = () => {
       <section className="py-20 bg-white">
         <div className="container mx-auto px-4">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+            <Loader2 className="animate-spin h-12 w-12 text-purple-600 mx-auto" />
             <p className="mt-4 text-gray-600">Loading trust data...</p>
           </div>
         </div>
@@ -84,11 +109,13 @@ const TrustSection = () => {
         <div className="container mx-auto px-4">
           <div className="text-center">
             <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md mx-auto">
+              <AlertCircle className="h-8 w-8 text-red-600 mx-auto mb-2" />
               <p className="text-red-600">Failed to load trust data: {error}</p>
               <button 
                 onClick={() => window.location.reload()} 
-                className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors inline-flex items-center"
               >
+                <RefreshCw className="h-4 w-4 mr-2" />
                 Retry
               </button>
             </div>
@@ -154,27 +181,25 @@ const TrustSection = () => {
 
             {activePartners.length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
-                {activePartners.map((partner, index) => (
-                  <div 
-                    key={partner._id || index} 
-                    className="partner-logo bg-gray-50 p-4 rounded-lg shadow-sm flex items-center justify-center h-24 hover:shadow-md transition-shadow duration-300"
-                    title={`${partner.name} - Partner since ${new Date(partner.partnership_since).getFullYear()}`}
-                  >
-                    <Image 
-                      src={partner.logo || '/images/partners/default.svg'} 
-                      alt={partner.name} 
-                      width={120} 
-                      height={80} 
-                      className="max-h-12 w-auto object-contain"
-                      onError={(e) => {
-                        e.target.src = '/images/partners/default.svg';
-                      }}
-                    />
-                  </div>
-                ))}
+                {activePartners.map((partner, index) => {
+                  const IconComponent = getPartnerIcon(partner.type);
+                  return (
+                    <div 
+                      key={partner._id || index} 
+                      className="partner-logo bg-gray-50 p-4 rounded-lg shadow-sm flex flex-col items-center justify-center h-24 hover:shadow-md transition-shadow duration-300 group"
+                      title={`${partner.name} - Partner since ${new Date(partner.partnership_since).getFullYear()}`}
+                    >
+                      <IconComponent className="h-8 w-8 text-gray-600 group-hover:text-purple-600 transition-colors duration-300 mb-1" />
+                      <span className="text-xs text-gray-500 text-center truncate w-full px-1">
+                        {partner.name}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-8">
+                <Building2 className="h-12 w-12 text-gray-300 mx-auto mb-2" />
                 <p className="text-gray-500">No active partners found.</p>
               </div>
             )}
@@ -190,15 +215,7 @@ const TrustSection = () => {
                 href="/impact-report"
                 className="inline-flex items-center px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-300 mr-4"
               >
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  className="h-5 w-5 mr-2" 
-                  fill="none" 
-                  viewBox="0 0 24 24" 
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <CheckCircle className="h-5 w-5 mr-2" />
                 View Impact Report
               </Link>
               
@@ -206,15 +223,7 @@ const TrustSection = () => {
                 href="/volunteer-handbook"
                 className="inline-flex items-center px-6 py-3 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 transition-colors duration-300"
               >
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  className="h-5 w-5 mr-2" 
-                  fill="none" 
-                  viewBox="0 0 24 24" 
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
+                <Download className="h-5 w-5 mr-2" />
                 Download Handbook
               </Link>
             </motion.div>

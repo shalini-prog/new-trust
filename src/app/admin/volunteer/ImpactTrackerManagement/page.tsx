@@ -40,13 +40,12 @@ interface TopVolunteer {
   email: string;
 }
 
-interface ImpactGoal {
-  id: string;
-  metric: string;
-  currentValue: number;
-  targetValue: number;
-  deadline: string;
-  status: 'on-track' | 'behind' | 'achieved';
+// Add interface for analytics data
+interface AnalyticsData {
+  engagementRate: number;
+  avgHoursPerVolunteer: number;
+  previousEngagementRate?: number;
+  previousAvgHours?: number;
 }
 
 export default function AdminImpactTrackerPage() {
@@ -87,7 +86,7 @@ export default function AdminImpactTrackerPage() {
       hours: 118,
       badge: 'Environmental Champion',
       image: '/avatars/volunteer-3.jpg',
-      status: 'active',
+      status: 'inactive',
       joinDate: '2023-08-10',
       email: 'aisha.p@email.com'
     },
@@ -103,163 +102,226 @@ export default function AdminImpactTrackerPage() {
     }
   ]);
 
-  const [goals, setGoals] = useState<ImpactGoal[]>([
-    {
-      id: '1',
-      metric: 'Volunteers This Month',
-      currentValue: 230,
-      targetValue: 300,
-      deadline: '2025-06-30',
-      status: 'on-track'
-    },
-    {
-      id: '2',
-      metric: 'Total Hours',
-      currentValue: 10645,
-      targetValue: 15000,
-      deadline: '2025-12-31',
-      status: 'on-track'
-    },
-    {
-      id: '3',
-      metric: 'Active Projects',
-      currentValue: 52,
-      targetValue: 75,
-      deadline: '2025-09-30',
-      status: 'behind'
-    },
-    {
-      id: '4',
-      metric: 'Lives Impacted',
-      currentValue: 5280,
-      targetValue: 10000,
-      deadline: '2025-12-31',
-      status: 'on-track'
-    }
-  ]);
-
   const [editingVolunteer, setEditingVolunteer] = useState<string | null>(null);
-  const [newVolunteer, setNewVolunteer] = useState<Partial<TopVolunteer>>({});
+  const [editingVolunteerData, setEditingVolunteerData] = useState<Partial<TopVolunteer>>({});
+  const [newVolunteer, setNewVolunteer] = useState<Partial<TopVolunteer>>({
+    status: 'active' // Default status for new volunteers
+  });
   const [showAddVolunteer, setShowAddVolunteer] = useState(false);
 
-  useEffect(() => {
-  const fetchDashboard = async () => {
-    try {
-      const res = await fetch('http://localhost:5000/api/vimpact');
-      const data = await res.json();
+  // Add state for analytics data
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData>({
+    engagementRate: 0,
+    avgHoursPerVolunteer: 0
+  });
 
-      // Update state with fetched values
-      setImpactStats(data.stats);
-      setTempStats(data.stats);
-      setTopVolunteers(
-        data.topVolunteers.map((v: any) => ({
+  // Function to calculate dynamic analytics
+  const calculateAnalytics = (stats: ImpactStats, volunteers: TopVolunteer[]): AnalyticsData => {
+    // Calculate average hours per volunteer
+    const totalVolunteers = volunteers.length;
+    const avgHoursPerVolunteer = totalVolunteers > 0 ? stats.totalHours / stats.volunteersThisMonth : 0;
+
+    // Calculate engagement rate (active volunteers / total volunteers)
+    const activeVolunteers = volunteers.filter(v => v.status === 'active').length;
+    const engagementRate = totalVolunteers > 0 ? (activeVolunteers / totalVolunteers) * 100 : 0;
+
+    return {
+      engagementRate: Math.round(engagementRate * 10) / 10,
+      avgHoursPerVolunteer: Math.round(avgHoursPerVolunteer * 10) / 10
+    };
+  };
+
+  useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/vimpact');
+        const data = await res.json();
+
+        // Update state with fetched values
+        const updatedStats = data.stats;
+        const updatedVolunteers = data.topVolunteers.map((v: any) => ({
           ...v,
           id: v._id,
           joinDate: v.joinDate.split('T')[0]
-        }))
-      );
-    } catch (err) {
-      console.error('Failed to load dashboard data:', err);
-    }
-  };
+        }));
 
-  fetchDashboard();
-}, []);
+        setImpactStats(updatedStats);
+        setTempStats(updatedStats);
+        setTopVolunteers(updatedVolunteers);
 
+        // Calculate and set analytics data
+        const analytics = calculateAnalytics(updatedStats, updatedVolunteers);
+        setAnalyticsData(analytics);
 
+      } catch (err) {
+        console.error('Failed to load dashboard data:', err);
+        // Calculate analytics with current data if fetch fails
+        const analytics = calculateAnalytics(impactStats, topVolunteers);
+        setAnalyticsData(analytics);
+      }
+    };
+
+    fetchDashboard();
+  }, []);
+
+  // Update analytics whenever stats or volunteers change
+  useEffect(() => {
+    const analytics = calculateAnalytics(impactStats, topVolunteers);
+    setAnalyticsData(prevAnalytics => ({
+      ...analytics,
+      previousEngagementRate: prevAnalytics.engagementRate,
+      previousAvgHours: prevAnalytics.avgHoursPerVolunteer
+    }));
+  }, [impactStats, topVolunteers]);
 
   const handleStatsUpdate = async () => {
-  try {
-    const res = await fetch('http://localhost:5000/api/vimpact/stats', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(tempStats)
-    });
+    try {
+      const res = await fetch('http://localhost:5000/api/vimpact/stats', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tempStats)
+      });
 
-    const updatedStats = await res.json();
-    setImpactStats(updatedStats);
-    setEditingStats(false);
-  } catch (err) {
-    console.error('Error updating stats:', err);
-  }
-};
-
+      const updatedStats = await res.json();
+      setImpactStats(updatedStats);
+      setEditingStats(false);
+      
+      // Recalculate analytics with updated stats
+      const analytics = calculateAnalytics(updatedStats, topVolunteers);
+      setAnalyticsData(prev => ({
+        ...analytics,
+        previousEngagementRate: prev.engagementRate,
+        previousAvgHours: prev.avgHoursPerVolunteer
+      }));
+    } catch (err) {
+      console.error('Error updating stats:', err);
+    }
+  };
 
   const handleStatsCancelEdit = () => {
     setTempStats(impactStats);
     setEditingStats(false);
   };
 
-  const handleVolunteerUpdate = async (id: string, updatedVolunteer: Partial<TopVolunteer>) => {
-  try {
-    const res = await fetch(`http://localhost:5000/api/vimpact/volunteers/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updatedVolunteer)
+  const handleVolunteerEdit = (volunteer: TopVolunteer) => {
+    setEditingVolunteer(volunteer.id);
+    setEditingVolunteerData({
+      name: volunteer.name,
+      hours: volunteer.hours,
+      badge: volunteer.badge,
+      status: volunteer.status,
+      email: volunteer.email
     });
+  };
 
-    const updated = await res.json();
-    setTopVolunteers(prev =>
-      prev.map(vol => vol.id === id ? { ...vol, ...updated, id: updated._id } : vol)
-    );
-    setEditingVolunteer(null);
-  } catch (err) {
-    console.error('Error updating volunteer:', err);
-  }
-};
-
-
-  const handleAddVolunteer = async () => {
-  if (newVolunteer.name && newVolunteer.hours && newVolunteer.badge && newVolunteer.email) {
+  const handleVolunteerUpdate = async (id: string) => {
     try {
-      const res = await fetch('http://localhost:5000/api/vimpact/volunteers', {
-        method: 'POST',
+      const res = await fetch(`http://localhost:5000/api/vimpact/volunteers/${id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newVolunteer)
+        body: JSON.stringify(editingVolunteerData)
       });
 
-      const addedVolunteer = await res.json();
-      setTopVolunteers(prev => [...prev, {
-        ...addedVolunteer,
-        id: addedVolunteer._id,
-        joinDate: addedVolunteer.joinDate.split('T')[0]
-      }]);
-
-      setNewVolunteer({});
-      setShowAddVolunteer(false);
+      const updated = await res.json();
+      const newVolunteers = topVolunteers.map(vol => 
+        vol.id === id ? { ...vol, ...editingVolunteerData, id: updated._id || vol.id } : vol
+      );
+      setTopVolunteers(newVolunteers);
+      setEditingVolunteer(null);
+      setEditingVolunteerData({});
+      
+      // Analytics will be automatically recalculated due to useEffect dependency
     } catch (err) {
-      console.error('Error adding volunteer:', err);
+      console.error('Error updating volunteer:', err);
     }
-  }
-};
+  };
 
+  const handleCancelEdit = () => {
+    setEditingVolunteer(null);
+    setEditingVolunteerData({});
+  };
+
+  const handleAddVolunteer = async () => {
+    if (newVolunteer.name && newVolunteer.hours && newVolunteer.badge && newVolunteer.email && newVolunteer.status) {
+      try {
+        const volunteerToAdd = {
+          ...newVolunteer,
+          joinDate: new Date().toISOString().split('T')[0]
+        };
+
+        const res = await fetch('http://localhost:5000/api/vimpact/volunteers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(volunteerToAdd)
+        });
+
+        const addedVolunteer = await res.json();
+        const newVolunteers = [...topVolunteers, {
+          ...addedVolunteer,
+          id: addedVolunteer._id || Date.now().toString(),
+          joinDate: addedVolunteer.joinDate ? addedVolunteer.joinDate.split('T')[0] : volunteerToAdd.joinDate
+        }];
+        setTopVolunteers(newVolunteers);
+
+        setNewVolunteer({ status: 'active' }); // Reset with default status
+        setShowAddVolunteer(false);
+        
+        // Analytics will be automatically recalculated due to useEffect dependency
+      } catch (err) {
+        console.error('Error adding volunteer:', err);
+      }
+    }
+  };
 
   const handleDeleteVolunteer = async (id: string) => {
-  try {
-    await fetch(`http://localhost:5000/api/vimpact/volunteers/${id}`, {
-      method: 'DELETE'
-    });
+    try {
+      await fetch(`http://localhost:5000/api/vimpact/volunteers/${id}`, {
+        method: 'DELETE'
+      });
 
-    setTopVolunteers(prev => prev.filter(vol => vol.id !== id));
-  } catch (err) {
-    console.error('Error deleting volunteer:', err);
-  }
-};
-
+      const newVolunteers = topVolunteers.filter(vol => vol.id !== id);
+      setTopVolunteers(newVolunteers);
+      
+      // Analytics will be automatically recalculated due to useEffect dependency
+    } catch (err) {
+      console.error('Error deleting volunteer:', err);
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'on-track': return 'bg-green-100 text-green-800';
-      case 'behind': return 'bg-red-100 text-red-800';
-      case 'achieved': return 'bg-blue-100 text-blue-800';
       case 'active': return 'bg-green-100 text-green-800';
       case 'inactive': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const calculateProgress = (current: number, target: number) => {
-    return Math.min((current / target) * 100, 100);
+  // Function to refresh all data
+  const handleRefreshData = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/vimpact');
+      const data = await res.json();
+
+      const updatedStats = data.stats;
+      const updatedVolunteers = data.topVolunteers.map((v: any) => ({
+        ...v,
+        id: v._id,
+        joinDate: v.joinDate.split('T')[0]
+      }));
+
+      setImpactStats(updatedStats);
+      setTempStats(updatedStats);
+      setTopVolunteers(updatedVolunteers);
+
+      const analytics = calculateAnalytics(updatedStats, updatedVolunteers);
+      setAnalyticsData(prev => ({
+        ...analytics,
+        previousEngagementRate: prev.engagementRate,
+        previousAvgHours: prev.avgHoursPerVolunteer
+      }));
+    } catch (err) {
+      console.error('Failed to refresh data:', err);
+    }
   };
 
   return (
@@ -272,7 +334,10 @@ export default function AdminImpactTrackerPage() {
             <p className="text-gray-600">Manage and monitor community impact metrics</p>
           </div>
           <div className="flex space-x-3">
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2">
+            <button 
+              onClick={handleRefreshData}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+            >
               <RefreshCw className="h-4 w-4" />
               <span>Refresh Data</span>
             </button>
@@ -391,10 +456,8 @@ export default function AdminImpactTrackerPage() {
         </div>
       </div>
 
-      
-
       {/* Top Volunteers Management */}
-      <div className="bg-white rounded-lg shadow-sm">
+      <div className="bg-white rounded-lg shadow-sm mb-8">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h2 className="text-xl font-semibold text-gray-900">Top Volunteers Management</h2>
           <button 
@@ -410,7 +473,7 @@ export default function AdminImpactTrackerPage() {
         {showAddVolunteer && (
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
             <h3 className="text-lg font-semibold mb-4">Add New Top Volunteer</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <input
                 type="text"
                 placeholder="Name"
@@ -439,6 +502,14 @@ export default function AdminImpactTrackerPage() {
                 onChange={(e) => setNewVolunteer({...newVolunteer, badge: e.target.value})}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
               />
+              <select
+                value={newVolunteer.status || 'active'}
+                onChange={(e) => setNewVolunteer({...newVolunteer, status: e.target.value as 'active' | 'inactive'})}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
             </div>
             <div className="flex space-x-2 mt-4">
               <button 
@@ -448,7 +519,7 @@ export default function AdminImpactTrackerPage() {
                 Add Volunteer
               </button>
               <button 
-                onClick={() => {setShowAddVolunteer(false); setNewVolunteer({});}}
+                onClick={() => {setShowAddVolunteer(false); setNewVolunteer({ status: 'active' });}}
                 className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
               >
                 Cancel
@@ -462,6 +533,7 @@ export default function AdminImpactTrackerPage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Volunteer</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hours</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Badge</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -481,23 +553,34 @@ export default function AdminImpactTrackerPage() {
                         {editingVolunteer === volunteer.id ? (
                           <input
                             type="text"
-                            defaultValue={volunteer.name}
-                            onBlur={(e) => handleVolunteerUpdate(volunteer.id, {name: e.target.value})}
+                            value={editingVolunteerData.name || ''}
+                            onChange={(e) => setEditingVolunteerData({...editingVolunteerData, name: e.target.value})}
                             className="text-sm font-medium text-gray-900 bg-transparent border-b border-gray-300 focus:outline-none focus:border-blue-500"
                           />
                         ) : (
                           <div className="text-sm font-medium text-gray-900">{volunteer.name}</div>
                         )}
-                        <div className="text-sm text-gray-500">{volunteer.email}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {editingVolunteer === volunteer.id ? (
                       <input
+                        type="email"
+                        value={editingVolunteerData.email || ''}
+                        onChange={(e) => setEditingVolunteerData({...editingVolunteerData, email: e.target.value})}
+                        className="text-sm text-gray-900 bg-transparent border-b border-gray-300 focus:outline-none focus:border-blue-500"
+                      />
+                    ) : (
+                      <div className="text-sm text-gray-500">{volunteer.email}</div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {editingVolunteer === volunteer.id ? (
+                      <input
                         type="number"
-                        defaultValue={volunteer.hours}
-                        onBlur={(e) => handleVolunteerUpdate(volunteer.id, {hours: parseInt(e.target.value)})}
+                        value={editingVolunteerData.hours || ''}
+                        onChange={(e) => setEditingVolunteerData({...editingVolunteerData, hours: parseInt(e.target.value) || 0})}
                         className="text-sm text-gray-900 bg-transparent border-b border-gray-300 focus:outline-none focus:border-blue-500 w-20"
                       />
                     ) : (
@@ -508,8 +591,8 @@ export default function AdminImpactTrackerPage() {
                     {editingVolunteer === volunteer.id ? (
                       <input
                         type="text"
-                        defaultValue={volunteer.badge}
-                        onBlur={(e) => handleVolunteerUpdate(volunteer.id, {badge: e.target.value})}
+                        value={editingVolunteerData.badge || ''}
+                        onChange={(e) => setEditingVolunteerData({...editingVolunteerData, badge: e.target.value})}
                         className="text-sm text-gray-900 bg-transparent border-b border-gray-300 focus:outline-none focus:border-blue-500"
                       />
                     ) : (
@@ -519,9 +602,20 @@ export default function AdminImpactTrackerPage() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(volunteer.status)}`}>
-                      {volunteer.status}
-                    </span>
+                    {editingVolunteer === volunteer.id ? (
+                      <select
+                        value={editingVolunteerData.status || ''}
+                        onChange={(e) => setEditingVolunteerData({...editingVolunteerData, status: e.target.value as 'active' | 'inactive'})}
+                        className="text-sm bg-transparent border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    ) : (
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(volunteer.status)}`}>
+                        {volunteer.status}
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {new Date(volunteer.joinDate).toLocaleDateString()}
@@ -529,26 +623,35 @@ export default function AdminImpactTrackerPage() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex space-x-2">
                       {editingVolunteer === volunteer.id ? (
-                        <button 
-                          onClick={() => setEditingVolunteer(null)}
-                          className="text-green-600 hover:text-green-900"
-                        >
-                          <Save className="h-4 w-4" />
-                        </button>
+                        <>
+                          <button 
+                            onClick={() => handleVolunteerUpdate(volunteer.id)}
+                            className="text-green-600 hover:text-green-900">
+                            <Save className="h-4 w-4" />
+                          </button>
+                          <button 
+                            onClick={handleCancelEdit}
+                            className="text-gray-600 hover:text-gray-900"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </>
                       ) : (
-                        <button 
-                          onClick={() => setEditingVolunteer(volunteer.id)}
-                          className="text-blue-600 hover:text-blue-900"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
+                        <>
+                          <button 
+                            onClick={() => handleVolunteerEdit(volunteer)}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteVolunteer(volunteer.id)}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
                       )}
-                      <button 
-                        onClick={() => handleDeleteVolunteer(volunteer.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
                     </div>
                   </td>
                 </tr>
@@ -558,33 +661,79 @@ export default function AdminImpactTrackerPage() {
         </div>
       </div>
 
-      {/* Analytics Overview */}
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Engagement Rate</h3>
-            <TrendingUp className="h-5 w-5 text-green-500" />
-          </div>
-          <div className="text-3xl font-bold text-green-600 mb-2">87%</div>
-          <p className="text-sm text-gray-600">+5% from last month</p>
+      {/* Analytics Section */}
+      <div className="bg-white rounded-lg shadow-sm">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900">Live Analytics</h2>
         </div>
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700">Engagement Rate</h3>
+                  <p className="text-2xl font-bold text-blue-600 mt-1">
+                    {analyticsData.engagementRate}%
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {analyticsData.previousEngagementRate && 
+                      analyticsData.engagementRate > analyticsData.previousEngagementRate ? 
+                      `↗ +${(analyticsData.engagementRate - analyticsData.previousEngagementRate).toFixed(1)}%` : 
+                      analyticsData.previousEngagementRate && 
+                      analyticsData.engagementRate < analyticsData.previousEngagementRate ? 
+                      `↘ -${(analyticsData.previousEngagementRate - analyticsData.engagementRate).toFixed(1)}%` : 
+                      'No change'
+                    }
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-100 rounded-full">
+                  <TrendingUp className="h-6 w-6 text-blue-600" />
+                </div>
+              </div>
+            </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Avg. Hours/Volunteer</h3>
-            <BarChart3 className="h-5 w-5 text-blue-500" />
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700">Avg Hours/Volunteer</h3>
+                  <p className="text-2xl font-bold text-green-600 mt-1">
+                    {analyticsData.avgHoursPerVolunteer}h
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {analyticsData.previousAvgHours && 
+                      analyticsData.avgHoursPerVolunteer > analyticsData.previousAvgHours ? 
+                      `↗ +${(analyticsData.avgHoursPerVolunteer - analyticsData.previousAvgHours).toFixed(1)}h` : 
+                      analyticsData.previousAvgHours && 
+                      analyticsData.avgHoursPerVolunteer < analyticsData.previousAvgHours ? 
+                      `↘ -${(analyticsData.previousAvgHours - analyticsData.avgHoursPerVolunteer).toFixed(1)}h` : 
+                      'No change'
+                    }
+                  </p>
+                </div>
+                <div className="p-3 bg-green-100 rounded-full">
+                  <BarChart3 className="h-6 w-6 text-green-600" />
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="text-3xl font-bold text-blue-600 mb-2">46.3</div>
-          <p className="text-sm text-gray-600">+2.1 from last month</p>
-        </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Impact Score</h3>
-            <Award className="h-5 w-5 text-purple-500" />
+          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Quick Insights</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <span>Active volunteers: {topVolunteers.filter(v => v.status === 'active').length}/{topVolunteers.length}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span>Total tracked hours: {impactStats.totalHours.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                <span>Impact ratio: {(impactStats.livesImpacted / impactStats.volunteersThisMonth).toFixed(1)} lives/volunteer</span>
+              </div>
+            </div>
           </div>
-          <div className="text-3xl font-bold text-purple-600 mb-2">9.2/10</div>
-          <p className="text-sm text-gray-600">Excellent performance</p>
         </div>
       </div>
     </div>
