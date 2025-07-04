@@ -124,15 +124,71 @@ export default function AdminDonationFormPage() {
     enabled: true
   });
 
+  useEffect(() => {
+  const fetchConfig = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/dform/get');
+      if (res.ok) {
+        const data = await res.json();
+
+        // Safely merge with default config to ensure no undefined fields
+        setFormConfig({
+          donationOptions: [],
+          customAmountEnabled: true,
+          monthlyDonationEnabled: true,
+          anonymousDonationEnabled: true,
+          messageFieldEnabled: true,
+          requiredFields: { name: true, email: true, phone: false },
+          paymentMethods: {
+            card: { enabled: true, name: '', description: '' },
+            upi: { enabled: true, name: '', description: '' },
+            netbanking: { enabled: true, name: '', description: '' },
+            wallet: { enabled: false, name: '', description: '' }
+          },
+          formSettings: {
+            minAmount: 100,
+            maxAmount: 100000,
+            defaultAmount: 1000,
+            currency: 'INR',
+            currencySymbol: '₹'
+          },
+          ...data // override defaults with fetched data
+        });
+      }
+    } catch (error) {
+      console.error("Error loading config:", error);
+    }
+  };
+
+  fetchConfig();
+}, []);
+
+
+
+ 
+
   const handleSave = async () => {
-    setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+  setIsLoading(true);
+  try {
+    const res = await fetch('http://localhost:5000/api/dform/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formConfig)
+    });
+
+    if (res.ok) {
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-    }, 1500);
-  };
+    } else {
+      console.error("Failed to save config:", await res.text());
+    }
+  } catch (error) {
+    console.error("Error saving config:", error);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const addDonationOption = () => {
     if (newDonationOption.amount && newDonationOption.impact && newDonationOption.icon) {

@@ -74,6 +74,22 @@ export default function AdminHeroBannerPage() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [videoPreview, setVideoPreview] = useState(false);
 
+  useEffect(() => {
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/dhero');
+      if (!res.ok) throw new Error('Failed to fetch hero banner settings');
+      const data: HeroBannerSettings = await res.json();
+      setSettings(data);
+    } catch (err) {
+      console.error('Error fetching settings:', err);
+    }
+  };
+
+  fetchSettings();
+}, []);
+
+
   const handleInputChange = (field: keyof HeroBannerSettings, value: any) => {
     setSettings(prev => ({
       ...prev,
@@ -88,11 +104,11 @@ export default function AdminHeroBannerPage() {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Here you would make the actual API call to save settings
-      // await fetch('/api/admin/hero-banner', {
-      //   method: 'PUT',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(settings)
-      // });
+       await fetch('http://localhost:5000/api/dhero', {
+         method: 'PUT',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify(settings)
+       });
       
       setLastSaved(new Date());
     } catch (error) {
@@ -102,15 +118,26 @@ export default function AdminHeroBannerPage() {
     }
   };
 
-  const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      // Handle video upload logic
-      const videoUrl = URL.createObjectURL(file);
-      handleInputChange('videoUrl', videoUrl);
+  const handleVideoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files?.[0];
+  if (file) {
+    const formData = new FormData();
+    formData.append('video', file);
+
+    try {
+      const res = await fetch('http://localhost:5000/api/dhero/upload-video', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      handleInputChange('videoUrl', data.url);
       handleInputChange('videoType', 'local');
+    } catch (error) {
+      console.error('Upload failed:', error);
     }
-  };
+  }
+};
+
 
   const resetToDefaults = () => {
     if (confirm('Are you sure you want to reset all settings to defaults? This action cannot be undone.')) {

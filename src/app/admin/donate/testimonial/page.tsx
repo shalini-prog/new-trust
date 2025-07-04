@@ -13,7 +13,8 @@ import {
   Star,
   MessageSquare,
   User,
-  Settings
+  Settings,
+  Check
 } from 'lucide-react';
 
 // Admin Components (assuming these exist based on your structure)
@@ -21,7 +22,7 @@ import AdminCard from '@/components/admin/ui/AdminCard';
 import AdminButton from '@/components/admin/ui/AdminButton';
 
 interface Testimonial {
-  id: string;
+  _id: string;
   quote: string;
   name: string;
   role: string;
@@ -42,10 +43,20 @@ interface TestimonialFormData {
   order: number;
 }
 
+interface SectionSettings {
+  isEnabled: boolean;
+  title: string;
+  subtitle: string;
+  autoScroll: boolean;
+  scrollSpeed: number;
+  showRatings: boolean;
+  maxVisible: number;
+}
+
 export default function AdminTestimonialsPage() {
   const [testimonials, setTestimonials] = useState<Testimonial[]>([
     {
-      id: '1',
+      _id: '1',
       quote: "Donating to this organization was one of the most fulfilling experiences. I could actually see where my money went through their transparent reporting.",
       name: "Priya Sharma",
       role: "Monthly Donor",
@@ -56,7 +67,7 @@ export default function AdminTestimonialsPage() {
       order: 1
     },
     {
-      id: '2',
+      _id: '2',
       quote: "As a corporate partner, we've seen firsthand the impact this organization makes. Their dedication to their mission is unparalleled.",
       name: "Rajesh Gupta",
       role: "Corporate Sponsor",
@@ -67,7 +78,7 @@ export default function AdminTestimonialsPage() {
       order: 2
     },
     {
-      id: '3',
+      _id: '3',
       quote: "The donation process was smooth and easy. I appreciate how they send regular updates about the projects I've contributed to.",
       name: "Ananya Patel",
       role: "First-time Donor",
@@ -78,7 +89,7 @@ export default function AdminTestimonialsPage() {
       order: 3
     },
     {
-      id: '4',
+      _id: '4',
       quote: "I've been donating monthly for two years now. The impact reports they share make me proud to be a part of this journey.",
       name: "Vikram Malhotra",
       role: "Long-term Supporter",
@@ -89,7 +100,7 @@ export default function AdminTestimonialsPage() {
       order: 4
     },
     {
-      id: '5',
+      _id: '5',
       quote: "Their emergency response fund helped my community after the floods last year. Now I donate to help others in similar situations.",
       name: "Meena Reddy",
       role: "Community Member",
@@ -110,10 +121,10 @@ export default function AdminTestimonialsPage() {
     image: '',
     isActive: true,
     rating: 5,
-    order: testimonials.length + 1
+    order: 1
   });
 
-  const [sectionSettings, setSectionSettings] = useState({
+  const [sectionSettings, setSectionSettings] = useState<SectionSettings>({
     isEnabled: true,
     title: "Donor Stories",
     subtitle: "Read what our donors have to say about their giving experience and the impact they've helped create.",
@@ -122,6 +133,45 @@ export default function AdminTestimonialsPage() {
     showRatings: true,
     maxVisible: 10
   });
+
+  const [savedSettings, setSavedSettings] = useState<SectionSettings>({
+    isEnabled: true,
+    title: "Donor Stories",
+    subtitle: "Read what our donors have to say about their giving experience and the impact they've helped create.",
+    autoScroll: true,
+    scrollSpeed: 100,
+    showRatings: true,
+    maxVisible: 10
+  });
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Check if settings have changed
+  const hasSettingsChanged = JSON.stringify(sectionSettings) !== JSON.stringify(savedSettings);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [testimonialsRes, settingsRes] = await Promise.all([
+          fetch('http://localhost:5000/api/dtest'),
+          fetch('http://localhost:5000/api/dtest/settings')
+        ]);
+        const testimonialsData = await testimonialsRes.json();
+        const settingsData = await settingsRes.json();
+
+        setTestimonials(testimonialsData);
+        if (settingsData) {
+          setSectionSettings(settingsData);
+          setSavedSettings(settingsData);
+        }
+      } catch (err) {
+        console.error('Failed to fetch data', err);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   const handleAddNew = () => {
     setEditingTestimonial(null);
@@ -151,48 +201,122 @@ export default function AdminTestimonialsPage() {
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this testimonial?')) {
-      setTestimonials(testimonials.filter(t => t.id !== id));
+  const toggleStatus = async (_id: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/dtest/toggle/${_id}`, { method: 'PATCH' });
+      const updated = await res.json();
+      setTestimonials(testimonials.map(t => t._id === updated._id ? updated : t));
+    } catch (err) {
+      console.error('Failed to toggle status', err);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (editingTestimonial) {
-      // Update existing testimonial
-      setTestimonials(testimonials.map(t => 
-        t.id === editingTestimonial.id 
-          ? { ...t, ...formData }
-          : t
-      ));
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  const isEdit = !!editingTestimonial;
+
+  const payload: any = {
+    ...formData,
+    dateAdded: isEdit
+      ? editingTestimonial!.dateAdded
+      : new Date().toISOString().split('T')[0]
+  };
+
+  // Include `id` only if updating
+  if (isEdit) {
+    payload.id = editingTestimonial!._id; // send as `id`, not `_id`
+  }
+
+  try {
+    const res = await fetch('http://localhost:5000/api/dtest/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+
+    const saved = await res.json();
+
+    if (isEdit) {
+      setTestimonials(testimonials.map(t => (t._id === saved._id ? saved : t)));
     } else {
-      // Add new testimonial
-      const newTestimonial: Testimonial = {
-        id: Date.now().toString(),
-        ...formData,
-        dateAdded: new Date().toISOString().split('T')[0]
-      };
-      setTestimonials([...testimonials, newTestimonial]);
+      setTestimonials([...testimonials, saved]);
     }
-    
+
     setIsModalOpen(false);
+  } catch (error) {
+    console.error('Failed to save testimonial:', error);
+    alert('Failed to save testimonial. Please try again.');
+  }
+};
+
+
+  const handleSaveSettings = async () => {
+    setIsSaving(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/dtest/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sectionSettings)
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
+      const saved = await res.json();
+      setSavedSettings(saved);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err) {
+      console.error('Failed to save settings', err);
+      alert('Failed to save settings. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const toggleStatus = (id: string) => {
-    setTestimonials(testimonials.map(t => 
-      t.id === id ? { ...t, isActive: !t.isActive } : t
-    ));
+  const handleDelete = async (_id: string) => {
+    if (!confirm('Are you sure you want to delete this testimonial?')) return;
+
+    try {
+      const res = await fetch(`http://localhost:5000/api/dtest/${_id}`, { method: 'DELETE' });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
+      setTestimonials(testimonials.filter(t => t._id !== _id));
+    } catch (err) {
+      console.error('Failed to delete testimonial', err);
+      alert('Failed to delete testimonial. Please try again.');
+    }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      // In a real app, you'd upload this to your server/cloud storage
-      // For now, we'll just create a local URL
-      const imageUrl = URL.createObjectURL(file);
-      setFormData({ ...formData, image: imageUrl });
+    if (!file) return;
+
+    const uploadFormData = new FormData();
+    uploadFormData.append('image', file);
+
+    try {
+      const res = await fetch('http://localhost:5000/api/dtest/upload-image', {
+        method: 'POST',
+        body: uploadFormData
+      });
+
+      if (!res.ok) throw new Error('Image upload failed');
+
+      const data = await res.json();
+      setFormData(prev => ({ ...prev, image: data.url }));
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Image upload failed. Please try again.');
     }
   };
 
@@ -263,7 +387,10 @@ export default function AdminTestimonialsPage() {
             <div>
               <p className="text-sm text-gray-600">Average Rating</p>
               <p className="text-2xl font-bold text-yellow-600">
-                {(testimonials.reduce((acc, t) => acc + t.rating, 0) / testimonials.length).toFixed(1)}
+                {testimonials.length > 0 
+                  ? (testimonials.reduce((acc, t) => acc + t.rating, 0) / testimonials.length).toFixed(1)
+                  : '0.0'
+                }
               </p>
             </div>
             <Star className="w-8 h-8 text-yellow-500" />
@@ -273,10 +400,31 @@ export default function AdminTestimonialsPage() {
 
       {/* Section Settings */}
       <AdminCard className="p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Settings className="w-5 h-5" />
-          Section Settings
-        </h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            Section Settings
+          </h2>
+          
+          {/* Save Button and Status */}
+          <div className="flex items-center gap-3">
+            {saveSuccess && (
+              <div className="flex items-center gap-2 text-green-600 text-sm">
+                <Check className="w-4 h-4" />
+                Settings saved successfully!
+              </div>
+            )}
+            <AdminButton
+              onClick={handleSaveSettings}
+              disabled={!hasSettingsChanged || isSaving}
+              variant={hasSettingsChanged ? "primary" : "outline"}
+              className="flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              {isSaving ? 'Saving...' : 'Save Settings'}
+            </AdminButton>
+          </div>
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -292,6 +440,20 @@ export default function AdminTestimonialsPage() {
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Max Visible Testimonials
+            </label>
+            <input
+              type="number"
+              value={sectionSettings.maxVisible}
+              onChange={(e) => setSectionSettings({...sectionSettings, maxVisible: parseInt(e.target.value)})}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              min="1"
+              max="20"
+            />
+          </div>
+
+          <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Subtitle
             </label>
@@ -370,7 +532,7 @@ export default function AdminTestimonialsPage() {
             </thead>
             <tbody>
               {testimonials.sort((a, b) => a.order - b.order).map((testimonial) => (
-                <tr key={testimonial.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr key={testimonial._id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-4 px-4">
                     <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
@@ -388,7 +550,7 @@ export default function AdminTestimonialsPage() {
                   </td>
                   <td className="py-4 px-4 max-w-md">
                     <p className="text-sm text-gray-900 truncate">
-                      "{testimonial.quote.substring(0, 100)}..."
+                      "{testimonial.quote?.substring(0, 100) || 'No quote'}..."
                     </p>
                   </td>
                   <td className="py-4 px-4">
@@ -398,7 +560,7 @@ export default function AdminTestimonialsPage() {
                   </td>
                   <td className="py-4 px-4">
                     <button
-                      onClick={() => toggleStatus(testimonial.id)}
+                      onClick={() => toggleStatus(testimonial._id)}
                       className={`px-2 py-1 text-xs font-medium rounded-full ${
                         testimonial.isActive 
                           ? 'bg-green-100 text-green-800' 
@@ -425,7 +587,7 @@ export default function AdminTestimonialsPage() {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button 
-                        onClick={() => handleDelete(testimonial.id)}
+                        onClick={() => handleDelete(testimonial._id)}
                         className="p-1 text-gray-400 hover:text-red-600"
                       >
                         <Trash2 className="w-4 h-4" />

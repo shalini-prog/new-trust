@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { 
   Save, 
   RefreshCw, 
@@ -43,7 +44,7 @@ const AdminButton = ({ children, variant = "primary", className = "", onClick, d
 };
 
 interface ImpactStat {
-  id: string;
+  _id: string;
   stat: number;
   label: string;
   icon: string;
@@ -123,6 +124,18 @@ export default function ImpactMeterAdminPage() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
 
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:5000';
+
+ const getImpactMeter = async () => {
+  const res = await axios.get(`${API_BASE}/api/dimpact`);
+  return res.data;
+};
+
+  const saveImpactMeter = async (data: any) => {
+  const res = await axios.post(`${API_BASE}/api/dimpact/save`, data);
+  return res.data;
+};
+
   const colorOptions = [
     'from-blue-600 to-purple-600',
     'from-purple-600 to-pink-500',
@@ -134,17 +147,46 @@ export default function ImpactMeterAdminPage() {
     'from-orange-500 to-red-500'
   ];
 
+  
+useEffect(() => {
+  const fetchData = async () => {
+    try {
+      const data = await getImpactMeter();
+      if (data) {
+        setImpactStats(data.impactStats || []);
+        setMonthlyGoal(data.monthlyGoal || {
+          goal: 0,
+          currentRaised: 0,
+          currency: '₹',
+          targetMonth: new Date().toISOString().slice(0, 7)
+        });
+        setSettings(data.settings || {
+          animationDuration: 2.5,
+          enableScrollTrigger: true,
+          displayFormat: 'auto',
+          showProgressBar: true,
+          enableHoverEffects: true
+        });
+      }
+    } catch (err) {
+      console.error('Error loading impact meter:', err);
+    }
+  };
+
+  fetchData();
+}, []);
+
   const iconOptions = ['👧', '🏙️', '📈', '💰', '❤️', '🌟', '🎯', '📊', '🏆', '🌍', '💡', '🔥'];
 
-  const handleStatUpdate = (id: string, field: keyof ImpactStat, value: any) => {
+  const handleStatUpdate = (_id: string, field: keyof ImpactStat, value: any) => {
     setImpactStats(prev => prev.map(stat => 
-      stat.id === id ? { ...stat, [field]: value } : stat
+      stat._id === _id ? { ...stat, [field]: value } : stat
     ));
   };
 
   const handleAddStat = () => {
     const newStat: ImpactStat = {
-      id: Date.now().toString(),
+      _id: Date.now().toString(),
       stat: 0,
       label: 'New Metric',
       icon: '📊',
@@ -156,26 +198,22 @@ export default function ImpactMeterAdminPage() {
     setImpactStats(prev => [...prev, newStat]);
   };
 
-  const handleRemoveStat = (id: string) => {
-    setImpactStats(prev => prev.filter(stat => stat.id !== id));
+  const handleRemoveStat = (_id: string) => {
+    setImpactStats(prev => prev.filter(stat => stat._id !== _id));
   };
 
   const handleSave = async () => {
-    setIsSaving(true);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
+  setIsSaving(true);
+  try {
+    await saveImpactMeter({ impactStats, monthlyGoal, settings });
     setLastSaved(new Date());
+  } catch (err) {
+    console.error('Failed to save:', err);
+  } finally {
     setIsSaving(false);
-    
-    // In a real application, you would make an API call here
-    console.log('Saving impact meter data:', {
-      impactStats,
-      monthlyGoal,
-      settings
-    });
-  };
+  }
+};
+
 
   const calculateProgress = () => {
     return Math.min((monthlyGoal.currentRaised / monthlyGoal.goal) * 100, 100);
@@ -240,7 +278,7 @@ export default function ImpactMeterAdminPage() {
 
             <div className="space-y-6">
               {impactStats.map((stat, index) => (
-                <div key={stat.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                <div key={stat._id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="font-medium text-gray-900">Statistic {index + 1}</h3>
                     <div className="flex gap-2">
@@ -248,14 +286,14 @@ export default function ImpactMeterAdminPage() {
                         <input
                           type="checkbox"
                           checked={stat.isActive}
-                          onChange={(e) => handleStatUpdate(stat.id, 'isActive', e.target.checked)}
+                          onChange={(e) => handleStatUpdate(stat._id, 'isActive', e.target.checked)}
                           className="rounded"
                         />
                         Active
                       </label>
                       <AdminButton 
                         variant="danger" 
-                        onClick={() => handleRemoveStat(stat.id)}
+                        onClick={() => handleRemoveStat(stat._id)}
                         className="text-xs px-2 py-1"
                       >
                         Remove
@@ -271,7 +309,7 @@ export default function ImpactMeterAdminPage() {
                       <input
                         type="number"
                         value={stat.stat}
-                        onChange={(e) => handleStatUpdate(stat.id, 'stat', parseInt(e.target.value) || 0)}
+                        onChange={(e) => handleStatUpdate(stat._id, 'stat', parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
@@ -283,7 +321,7 @@ export default function ImpactMeterAdminPage() {
                       <input
                         type="text"
                         value={stat.label}
-                        onChange={(e) => handleStatUpdate(stat.id, 'label', e.target.value)}
+                        onChange={(e) => handleStatUpdate(stat._id, 'label', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
@@ -294,7 +332,7 @@ export default function ImpactMeterAdminPage() {
                       </label>
                       <select
                         value={stat.icon}
-                        onChange={(e) => handleStatUpdate(stat.id, 'icon', e.target.value)}
+                        onChange={(e) => handleStatUpdate(stat._id, 'icon', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         {iconOptions.map(icon => (
@@ -309,7 +347,7 @@ export default function ImpactMeterAdminPage() {
                       </label>
                       <select
                         value={stat.color}
-                        onChange={(e) => handleStatUpdate(stat.id, 'color', e.target.value)}
+                        onChange={(e) => handleStatUpdate(stat._id, 'color', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         {colorOptions.map(color => (
@@ -327,7 +365,7 @@ export default function ImpactMeterAdminPage() {
                       <input
                         type="text"
                         value={stat.prefix}
-                        onChange={(e) => handleStatUpdate(stat.id, 'prefix', e.target.value)}
+                        onChange={(e) => handleStatUpdate(stat._id, 'prefix', e.target.value)}
                         placeholder="e.g., $, ₹"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
@@ -340,7 +378,7 @@ export default function ImpactMeterAdminPage() {
                       <input
                         type="text"
                         value={stat.suffix}
-                        onChange={(e) => handleStatUpdate(stat.id, 'suffix', e.target.value)}
+                        onChange={(e) => handleStatUpdate(stat._id, 'suffix', e.target.value)}
                         placeholder="e.g., +, %, K"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
@@ -526,7 +564,7 @@ export default function ImpactMeterAdminPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
             {impactStats.filter(stat => stat.isActive).map((item) => (
               <div 
-                key={item.id}
+                key={item._id}
                 className="bg-white rounded-xl shadow-lg p-6 text-center border hover:shadow-xl transition-shadow"
               >
                 <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-gradient-to-r ${item.color}`}>

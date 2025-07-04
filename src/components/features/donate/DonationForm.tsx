@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-
 import { motion, AnimatePresence } from 'framer-motion';
 import { gsap } from 'gsap';
 import DonationCard from '@/components/ui/DonationCard';
@@ -49,42 +48,68 @@ export default function DonationForm({ onDonationSuccess }: DonationFormProps) {
   const [phone, setPhone] = useState<string>('');
   const [isAnonymous, setIsAnonymous] = useState<boolean>(false);
   const [message, setMessage] = useState<string>('');
-  // Updated the type here to match PaymentMethod type
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [selectedCardId, setSelectedCardId] = useState<string>(''); // Track selected card
 
   // Handle donation option selection
   const handleSelectAmount = (amount: number) => {
+    console.log('Selecting amount:', amount); // Debug log
+    
     setDonationAmount(amount);
-    setCustomAmount('');
+    setCustomAmount(''); // Clear custom amount when preset is selected
+    setSelectedCardId(`donation-card-${amount}`); // Set selected card ID
     
-    // Animate the selection with GSAP
-    gsap.to('.donation-card', {
-      scale: 0.95,
-      opacity: 0.6,
-      duration: 0.3,
-    });
+    // Enhanced GSAP animation with better targeting
+    const allCards = document.querySelectorAll('.donation-card');
+    const selectedCard = document.querySelector(`[data-amount="${amount}"]`);
     
-    gsap.to(`.donation-card[data-amount="${amount}"]`, {
-      scale: 1,
-      opacity: 1,
-      duration: 0.3,
-    });
+    if (allCards.length > 0) {
+      // First, reset all cards
+      gsap.set(allCards, { scale: 1, opacity: 1 });
+      
+      // Then animate all cards to faded state
+      gsap.to(allCards, {
+        scale: 0.95,
+        opacity: 0.7,
+        duration: 0.3,
+        ease: "power2.out"
+      });
+      
+      // Animate selected card to prominent state
+      if (selectedCard) {
+        gsap.to(selectedCard, {
+          scale: 1.05,
+          opacity: 1,
+          duration: 0.3,
+          ease: "power2.out",
+          delay: 0.1
+        });
+      }
+    }
   };
 
   // Handle custom amount input
   const handleCustomAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
+    console.log('Custom amount changed:', value); // Debug log
+    
     if (/^\d*$/.test(value)) {
       setCustomAmount(value);
-      setDonationAmount(value ? parseInt(value) : 0);
+      const numericValue = value ? parseInt(value) : 0;
+      setDonationAmount(numericValue);
+      setSelectedCardId(''); // Clear selected card when custom amount is entered
       
-      // Reset animation on other cards
-      gsap.to('.donation-card', {
-        scale: 0.95,
-        opacity: 0.6,
-        duration: 0.3,
-      });
+      // Reset all cards to normal state when custom amount is being used
+      const allCards = document.querySelectorAll('.donation-card');
+      if (allCards.length > 0) {
+        gsap.to(allCards, {
+          scale: 1,
+          opacity: numericValue > 0 ? 0.7 : 1, // Fade cards if custom amount exists
+          duration: 0.3,
+          ease: "power2.out"
+        });
+      }
     }
   };
 
@@ -93,7 +118,7 @@ export default function DonationForm({ onDonationSuccess }: DonationFormProps) {
     setIsMonthly(!isMonthly);
   };
 
-  // Handle payment method selection - created function to handle this
+  // Handle payment method selection
   const handleSelectMethod = (method: PaymentMethod) => {
     setPaymentMethod(method);
   };
@@ -142,6 +167,24 @@ export default function DonationForm({ onDonationSuccess }: DonationFormProps) {
   const handleBack = () => {
     setFormStep(formStep - 1);
   };
+
+  // Reset animations when step changes
+  useEffect(() => {
+    if (formStep === 1) {
+      // Reset all card animations when returning to step 1
+      setTimeout(() => {
+        const allCards = document.querySelectorAll('.donation-card');
+        if (allCards.length > 0) {
+          gsap.set(allCards, { scale: 1, opacity: 1 });
+          
+          // Re-apply selection if there's a selected amount
+          if (donationAmount > 0 && !customAmount) {
+            handleSelectAmount(donationAmount);
+          }
+        }
+      }, 100);
+    }
+  }, [formStep]);
 
   return (
     <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
@@ -195,17 +238,25 @@ export default function DonationForm({ onDonationSuccess }: DonationFormProps) {
             >
               <h3 className="text-2xl font-bold text-gray-800 mb-6">Select Your Donation Amount</h3>
               
+              
+              
               {/* Donation Amount Options */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 {donationOptions.map((option) => (
-                  <DonationCard
+                  <div 
                     key={option.amount}
-                    amount={option.amount}
-                    impact={option.impact}
-                    icon={option.icon}
-                    isSelected={donationAmount === option.amount}
-                    onSelect={handleSelectAmount}
-                  />
+                    className="donation-card cursor-pointer" 
+                    data-amount={option.amount}
+                    onClick={() => handleSelectAmount(option.amount)}
+                  >
+                    <DonationCard
+                      amount={option.amount}
+                      impact={option.impact}
+                      icon={option.icon}
+                      isSelected={donationAmount === option.amount && !customAmount}
+                      onSelect={handleSelectAmount}
+                    />
+                  </div>
                 ))}
               </div>
               
@@ -216,9 +267,16 @@ export default function DonationForm({ onDonationSuccess }: DonationFormProps) {
                   type="text"
                   value={customAmount}
                   onChange={handleCustomAmountChange}
-                  className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300 text-xl"
+                  className={`w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300 text-xl ${
+                    customAmount ? 'ring-2 ring-purple-500 border-purple-500' : ''
+                  }`}
                   placeholder="Enter custom amount"
                 />
+                {customAmount && (
+                  <p className="mt-2 text-sm text-purple-600">
+                    Custom amount: ₹{parseInt(customAmount).toLocaleString()}
+                  </p>
+                )}
               </div>
               
               {/* Recurring Option */}
@@ -357,7 +415,7 @@ export default function DonationForm({ onDonationSuccess }: DonationFormProps) {
                 </div>
               </div>
               
-              {/* Payment Options - UPDATED THIS PART: Changed prop name to match PaymentOptions component */}
+              {/* Payment Options */}
               <PaymentOptions 
                 onSelectMethod={handleSelectMethod} 
                 selectedMethod={paymentMethod}

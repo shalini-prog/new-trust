@@ -128,6 +128,26 @@ const SwitchField = ({ label, checked, onChange, description }) => (
   </div>
 );
 
+// GET settings
+const fetchSettings = async () => {
+  const res = await fetch('http://localhost:5000/api/dthanks');
+  if (!res.ok) throw new Error('Failed to fetch settings');
+  return await res.json();
+};
+
+// POST settings
+const saveSettings = async (settings: any) => {
+  const res = await fetch('http://localhost:5000/api/dthanks/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+
+  if (!res.ok) throw new Error('Failed to save settings');
+  return await res.json();
+};
+
+
 export default function ThankYouModalAdmin() {
   const [activeTab, setActiveTab] = useState('content');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -201,6 +221,22 @@ export default function ThankYouModalAdmin() {
     amount: 2500
   });
 
+  useEffect(() => {
+  fetchSettings()
+    .then((data) => {
+      if (data) {
+        setModalContent(data.modalContent || {});
+        setDesignSettings(data.designSettings || {});
+        setBehaviorSettings(data.behaviorSettings || {});
+        setSocialSettings(data.socialSettings || {});
+        setImpactThresholds(data.impactThresholds || {});
+        setHasChanges(false);
+      }
+    })
+    .catch((err) => console.error('Load Error:', err));
+}, []);
+
+
   const handleContentChange = (field, value) => {
     setModalContent(prev => ({ ...prev, [field]: value }));
     setHasChanges(true);
@@ -224,9 +260,9 @@ export default function ThankYouModalAdmin() {
     setHasChanges(true);
   };
 
-  const handleSave = () => {
-    // Here you would save the settings to your backend
-    console.log('Saving settings...', {
+  const handleSave = async () => {
+  try {
+    await saveSettings({
       modalContent,
       designSettings,
       behaviorSettings,
@@ -234,8 +270,13 @@ export default function ThankYouModalAdmin() {
       impactThresholds
     });
     setHasChanges(false);
-    // Show success message
-  };
+    alert('Settings saved successfully!');
+  } catch (err) {
+    console.error(err);
+    alert('Failed to save settings.');
+  }
+};
+
 
   const handleReset = () => {
     // Reset to default values
