@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { 
   Image, 
   Plus, 
-  Eye, 
   Star, 
   Folder, 
-  Upload,
   BarChart3,
   TrendingUp,
   Users,
@@ -20,19 +19,17 @@ import {
   Trash2,
   X,
   Save,
-  Camera,
   Globe,
   RotateCcw,
   Check
 } from 'lucide-react';
 
 interface GalleryItem {
-  id: string;
+  _id: string;
   title: string;
   description: string;
   category: string;
   uploadDate: string;
-  views: number;
   thumbnail: string;
   imageUrl: string;
   featured: boolean;
@@ -41,7 +38,7 @@ interface GalleryItem {
 }
 
 interface Category {
-  id: string;
+  _id: string;
   name: string;
   description: string;
   itemCount: number;
@@ -51,18 +48,19 @@ export default function GalleryAdminManagement() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [showEditItemModal, setShowEditItemModal] = useState(false);
+  const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
   const [editingItem, setEditingItem] = useState<GalleryItem | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   
   // Sample data - replace with API calls
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([
     {
-      id: '1',
+      _id: '1',
       title: 'Community Food Drive Success',
       description: 'Our recent food drive collected over 500 meals for families in need.',
       category: 'Events',
       uploadDate: '2024-05-27',
-      views: 234,
       thumbnail: 'https://images.unsplash.com/photo-1593113598332-cd288d649433?w=300&h=200&fit=crop',
       imageUrl: 'https://images.unsplash.com/photo-1593113598332-cd288d649433?w=800&h=600&fit=crop',
       featured: true,
@@ -70,12 +68,11 @@ export default function GalleryAdminManagement() {
       tags: ['food', 'community', 'charity']
     },
     {
-      id: '2',
+      _id: '2',
       title: 'New Volunteer Training Session',
       description: 'Training our amazing volunteers for upcoming community projects.',
       category: 'Volunteers',
       uploadDate: '2024-05-26',
-      views: 156,
       thumbnail: 'https://images.unsplash.com/photo-1559027615-cd4628902d4a?w=300&h=200&fit=crop',
       imageUrl: 'https://images.unsplash.com/photo-1559027615-cd4628902d4a?w=800&h=600&fit=crop',
       featured: false,
@@ -83,12 +80,11 @@ export default function GalleryAdminManagement() {
       tags: ['volunteers', 'training', 'community']
     },
     {
-      id: '3',
+      _id: '3',
       title: 'Children Education Program Launch',
       description: 'Launching our new education initiative for underprivileged children.',
       category: 'Impact',
       uploadDate: '2024-05-25',
-      views: 189,
       thumbnail: 'https://images.unsplash.com/photo-1497486751825-1233686d5d80?w=300&h=200&fit=crop',
       imageUrl: 'https://images.unsplash.com/photo-1497486751825-1233686d5d80?w=800&h=600&fit=crop',
       featured: true,
@@ -98,11 +94,11 @@ export default function GalleryAdminManagement() {
   ]);
 
   const [categories, setCategories] = useState<Category[]>([
-    { id: '1', name: 'Events', description: 'Community events and gatherings', itemCount: 45 },
-    { id: '2', name: 'Volunteers', description: 'Our amazing volunteer community', itemCount: 32 },
-    { id: '3', name: 'Impact', description: 'Stories of positive change', itemCount: 28 },
-    { id: '4', name: 'Medical', description: 'Healthcare initiatives', itemCount: 18 },
-    { id: '5', name: 'Environment', description: 'Environmental conservation efforts', itemCount: 25 }
+    { _id: '1', name: 'Events', description: 'Community events and gatherings', itemCount: 0 },
+    { _id: '2', name: 'Volunteers', description: 'Our amazing volunteer community', itemCount: 0 },
+    { _id: '3', name: 'Impact', description: 'Stories of positive change', itemCount: 0 },
+    { _id: '4', name: 'Medical', description: 'Healthcare initiatives', itemCount: 0 },
+    { _id: '5', name: 'Environment', description: 'Environmental conservation efforts', itemCount: 0 }
   ]);
 
   const [newItem, setNewItem] = useState<Partial<GalleryItem>>({
@@ -121,83 +117,177 @@ export default function GalleryAdminManagement() {
     description: ''
   });
 
+  // Function to calculate category item counts
+  const calculateCategoryItemCounts = (items: GalleryItem[]) => {
+    const counts: { [key: string]: number } = {};
+    items.forEach(item => {
+      counts[item.category] = (counts[item.category] || 0) + 1;
+    });
+    return counts;
+  };
+
+  // Function to update category counts
+  const updateCategoryItemCounts = (items: GalleryItem[]) => {
+    const counts = calculateCategoryItemCounts(items);
+    setCategories(prev => prev.map(category => ({
+      ...category,
+      itemCount: counts[category.name] || 0
+    })));
+  };
+
   // Stats calculation
   const stats = {
     totalItems: galleryItems.length,
     totalCategories: categories.length,
-    totalViews: galleryItems.reduce((sum, item) => sum + item.views, 0),
     featuredItems: galleryItems.filter(item => item.featured).length,
     rotatingItems: galleryItems.filter(item => item.rotatingGallery).length
   };
 
+  const API = axios.create({
+    baseURL: 'http://localhost:5000/api/gpage',
+  });
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // Update category counts whenever gallery items change
+  useEffect(() => {
+    updateCategoryItemCounts(galleryItems);
+  }, [galleryItems]);
+
+  const fetchData = async () => {
+    try {
+      const [itemsRes, categoriesRes] = await Promise.all([
+        API.get('/items'),
+        API.get('/categories')
+      ]);
+      setGalleryItems(itemsRes.data);
+      setCategories(categoriesRes.data);
+    } catch (err) {
+      console.error('Error loading gallery data:', err);
+    }
+  };
+
   // Add new item
-  const handleAddItem = () => {
+  const handleAddItem = async () => {
     if (newItem.title && newItem.category && newItem.imageUrl) {
-      const item: GalleryItem = {
-        id: Date.now().toString(),
-        title: newItem.title || '',
-        description: newItem.description || '',
-        category: newItem.category || '',
-        uploadDate: new Date().toISOString().split('T')[0],
-        views: 0,
-        thumbnail: newItem.thumbnail || newItem.imageUrl || '',
-        imageUrl: newItem.imageUrl || '',
-        featured: newItem.featured || false,
-        rotatingGallery: newItem.rotatingGallery || false,
-        tags: newItem.tags || []
-      };
-      
-      setGalleryItems([item, ...galleryItems]);
-      setNewItem({
-        title: '', description: '', category: '', thumbnail: '', imageUrl: '', 
-        featured: false, rotatingGallery: false, tags: []
-      });
-      setShowAddItemModal(false);
+      try {
+        const res = await API.post('/items', {
+          ...newItem,
+          thumbnail: newItem.thumbnail || newItem.imageUrl,
+          uploadDate: new Date().toISOString().split('T')[0]
+        });
+        setGalleryItems(prev => [res.data, ...prev]);
+        setNewItem({ title: '', description: '', category: '', thumbnail: '', imageUrl: '', featured: false, rotatingGallery: false, tags: [] });
+        setShowAddItemModal(false);
+      } catch (err) {
+        console.error('Add item failed:', err);
+      }
     }
   };
 
   // Add new category
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
     if (newCategory.name) {
-      const category: Category = {
-        id: Date.now().toString(),
-        name: newCategory.name,
-        description: newCategory.description,
-        itemCount: 0
-      };
-      
-      setCategories([...categories, category]);
-      setNewCategory({ name: '', description: '' });
-      setShowAddCategoryModal(false);
+      try {
+        const res = await API.post('/categories', {
+          name: newCategory.name,
+          description: newCategory.description
+        });
+        setCategories(prev => [...prev, { ...res.data, itemCount: 0 }]);
+        setNewCategory({ name: '', description: '' });
+        setShowAddCategoryModal(false);
+      } catch (err) {
+        console.error('Add category failed:', err);
+      }
+    }
+  };
+
+  // Edit item functions
+  const handleEditItem = (item: GalleryItem) => {
+    setEditingItem({...item});
+    setShowEditItemModal(true);
+  };
+
+  const handleUpdateItem = async () => {
+    if (editingItem && editingItem.title && editingItem.category && editingItem.imageUrl) {
+      try {
+        const res = await API.put(`/items/${editingItem._id}`, editingItem);
+        setGalleryItems(prev => prev.map(item => item._id === editingItem._id ? res.data : item));
+        setEditingItem(null);
+        setShowEditItemModal(false);
+      } catch (err) {
+        console.error('Update item failed:', err);
+      }
+    }
+  };
+
+  // Edit category functions
+  const handleEditCategory = (category: Category) => {
+    setEditingCategory({...category});
+    setShowEditCategoryModal(true);
+  };
+
+  const handleUpdateCategory = async () => {
+    if (editingCategory && editingCategory.name) {
+      try {
+        const res = await API.put(`/categories/${editingCategory._id}`, editingCategory);
+        setCategories(prev => prev.map(cat => cat._id === editingCategory._id ? res.data : cat));
+        setEditingCategory(null);
+        setShowEditCategoryModal(false);
+      } catch (err) {
+        console.error('Update category failed:', err);
+      }
     }
   };
 
   // Toggle featured status
-  const toggleFeatured = (id: string) => {
-    setGalleryItems(items => 
-      items.map(item => 
-        item.id === id ? { ...item, featured: !item.featured } : item
-      )
-    );
+  const toggleFeatured = async (id: string) => {
+    const target = galleryItems.find(item => item._id === id);
+    if (!target) return;
+
+    try {
+      const updated = { ...target, featured: !target.featured };
+      await API.put(`/items/${id}`, updated);
+      setGalleryItems(prev => prev.map(item => item._id === id ? updated : item));
+    } catch (err) {
+      console.error('Toggle featured failed:', err);
+    }
   };
 
   // Toggle rotating gallery status
-  const toggleRotatingGallery = (id: string) => {
-    setGalleryItems(items => 
-      items.map(item => 
-        item.id === id ? { ...item, rotatingGallery: !item.rotatingGallery } : item
-      )
-    );
+  const toggleRotatingGallery = async (id: string) => {
+    const target = galleryItems.find(item => item._id === id);
+    if (!target) return;
+
+    try {
+      const updated = { ...target, rotatingGallery: !target.rotatingGallery };
+      await API.put(`/items/${id}`, updated);
+      setGalleryItems(prev => prev.map(item => item._id === id ? updated : item));
+    } catch (err) {
+      console.error('Toggle rotating failed:', err);
+    }
   };
 
   // Delete item
-  const deleteItem = (id: string) => {
-    setGalleryItems(items => items.filter(item => item.id !== id));
+  const deleteItem = async (id: string) => {
+    try {
+      await API.delete(`/items/${id}`);
+      setGalleryItems(prev => prev.filter(item => item._id !== id));
+    } catch (err) {
+      console.error('Delete item failed:', err);
+    }
   };
 
   // Delete category
-  const deleteCategory = (id: string) => {
-    setCategories(cats => cats.filter(cat => cat.id !== id));
+  const deleteCategory = async (id: string) => {
+    try {
+      await API.delete(`/categories/${id}`);
+      setCategories(prev => prev.filter(cat => cat._id !== id));
+    } catch (err) {
+      console.error('Delete category failed:', err);
+    }
   };
 
   const StatCard = ({ icon: Icon, title, value, change, color }: {
@@ -271,10 +361,9 @@ export default function GalleryAdminManagement() {
         {activeTab === 'dashboard' && (
           <div>
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               <StatCard icon={Image} title="Total Items" value={stats.totalItems} change="+12 this month" color="bg-blue-500" />
               <StatCard icon={Folder} title="Categories" value={stats.totalCategories} change="+2 this month" color="bg-green-500" />
-              <StatCard icon={Eye} title="Total Views" value={stats.totalViews.toLocaleString()} change="+23% this month" color="bg-purple-500" />
               <StatCard icon={Star} title="Featured Items" value={stats.featuredItems} color="bg-orange-500" />
               <StatCard icon={RotateCcw} title="3D Gallery Items" value={stats.rotatingItems} color="bg-red-500" />
             </div>
@@ -284,7 +373,7 @@ export default function GalleryAdminManagement() {
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Uploads</h2>
               <div className="space-y-4">
                 {galleryItems.slice(0, 5).map((item) => (
-                  <div key={item.id} className="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                  <div key={item._id} className="flex items-center p-3 rounded-lg hover:bg-gray-50">
                     <img src={item.thumbnail} alt={item.title} className="w-12 h-12 rounded-lg object-cover" />
                     <div className="ml-4 flex-1">
                       <div className="flex items-center justify-between">
@@ -297,9 +386,7 @@ export default function GalleryAdminManagement() {
                       <div className="flex items-center text-sm text-gray-500 mt-1">
                         <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium mr-2">{item.category}</span>
                         <Calendar className="w-3 h-3 mr-1" />
-                        <span className="mr-3">{new Date(item.uploadDate).toLocaleDateString()}</span>
-                        <Eye className="w-3 h-3 mr-1" />
-                        <span>{item.views} views</span>
+                        <span>{new Date(item.uploadDate).toLocaleDateString()}</span>
                       </div>
                     </div>
                   </div>
@@ -320,14 +407,14 @@ export default function GalleryAdminManagement() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Views</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Upload Date</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {galleryItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
+                    <tr key={item._id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <img src={item.thumbnail} alt={item.title} className="w-10 h-10 rounded object-cover" />
@@ -338,7 +425,7 @@ export default function GalleryAdminManagement() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">{item.category}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{item.views}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900">{new Date(item.uploadDate).toLocaleDateString()}</td>
                       <td className="px-6 py-4">
                         <div className="flex space-x-2">
                           {item.featured && <span className="px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded">Featured</span>}
@@ -347,23 +434,30 @@ export default function GalleryAdminManagement() {
                       </td>
                       <td className="px-6 py-4 text-sm font-medium space-x-2">
                         <button
-                          onClick={() => toggleFeatured(item.id)}
+                          onClick={() => toggleFeatured(item._id)}
                           className={`p-1 rounded ${item.featured ? 'text-orange-600 hover:bg-orange-50' : 'text-gray-400 hover:bg-gray-50'}`}
+                          title="Toggle Featured"
                         >
                           <Star className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => toggleRotatingGallery(item.id)}
+                          onClick={() => toggleRotatingGallery(item._id)}
                           className={`p-1 rounded ${item.rotatingGallery ? 'text-red-600 hover:bg-red-50' : 'text-gray-400 hover:bg-gray-50'}`}
+                          title="Toggle 3D Gallery"
                         >
                           <RotateCcw className="w-4 h-4" />
                         </button>
-                        <button className="p-1 text-blue-600 hover:bg-blue-50 rounded">
+                        <button 
+                          onClick={() => handleEditItem(item)}
+                          className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                          title="Edit Item"
+                        >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button 
-                          onClick={() => deleteItem(item.id)}
+                          onClick={() => deleteItem(item._id)}
                           className="p-1 text-red-600 hover:bg-red-50 rounded"
+                          title="Delete Item"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -383,16 +477,21 @@ export default function GalleryAdminManagement() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
               {categories.map((category) => (
-                <div key={category.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div key={category._id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-semibold text-gray-900">{category.name}</h3>
                     <div className="flex space-x-1">
-                      <button className="p-1 text-blue-600 hover:bg-blue-50 rounded">
+                      <button 
+                        onClick={() => handleEditCategory(category)}
+                        className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                        title="Edit Category"
+                      >
                         <Edit className="w-4 h-4" />
                       </button>
                       <button 
-                        onClick={() => deleteCategory(category.id)}
+                        onClick={() => deleteCategory(category._id)}
                         className="p-1 text-red-600 hover:bg-red-50 rounded"
+                        title="Delete Category"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -415,7 +514,7 @@ export default function GalleryAdminManagement() {
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {galleryItems.filter(item => item.rotatingGallery).map((item) => (
-                  <div key={item.id} className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                  <div key={item._id} className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow">
                     <img src={item.thumbnail} alt={item.title} className="w-full h-48 object-cover" />
                     <div className="p-4">
                       <h3 className="font-semibold text-gray-900 mb-2">{item.title}</h3>
@@ -423,7 +522,7 @@ export default function GalleryAdminManagement() {
                       <div className="flex items-center justify-between">
                         <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium">{item.category}</span>
                         <button
-                          onClick={() => toggleRotatingGallery(item.id)}
+                          onClick={() => toggleRotatingGallery(item._id)}
                           className="px-3 py-1 bg-red-100 text-red-800 rounded text-xs hover:bg-red-200"
                         >
                           Remove from 3D
@@ -486,8 +585,8 @@ export default function GalleryAdminManagement() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">Select a category</option>
-                  {categories.map(cat => (
-                    <option key={cat.id} value={cat.name}>{cat.name}</option>
+                  {categories.map(category => (
+                    <option key={category._id} value={category.name}>{category.name}</option>
                   ))}
                 </select>
               </div>
@@ -497,13 +596,22 @@ export default function GalleryAdminManagement() {
                 <input
                   type="url"
                   value={newItem.imageUrl || ''}
-                  onChange={(e) => setNewItem({...newItem, imageUrl: e.target.value})}
+                  onChange={(e) => setNewItem({...newItem, imageUrl: e.target.value, thumbnail: e.target.value})}
                   placeholder="https://example.com/image.jpg"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
+                {newItem.imageUrl && (
+                  <div className="mt-2">
+                    <img 
+                      src={newItem.imageUrl} 
+                      alt="Preview" 
+                      className="w-full max-w-sm h-48 object-cover rounded-lg border"
+                    />
+                  </div>
+                )}
               </div>
               
-              <div className="space-y-3">
+              <div className="flex space-x-4">
                 <label className="flex items-center">
                   <input
                     type="checkbox"
@@ -511,9 +619,9 @@ export default function GalleryAdminManagement() {
                     onChange={(e) => setNewItem({...newItem, featured: e.target.checked})}
                     className="mr-2"
                   />
-                  <span className="text-sm font-medium text-gray-700">Featured Item</span>
+                  <Star className="w-4 h-4 mr-1" />
+                  Featured Item
                 </label>
-                
                 <label className="flex items-center">
                   <input
                     type="checkbox"
@@ -521,22 +629,35 @@ export default function GalleryAdminManagement() {
                     onChange={(e) => setNewItem({...newItem, rotatingGallery: e.target.checked})}
                     className="mr-2"
                   />
-                  <span className="text-sm font-medium text-gray-700">Include in 3D Rotating Gallery</span>
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  3D Gallery
                 </label>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tags (comma-separated)</label>
+                <input
+                  type="text"
+                  value={newItem.tags?.join(', ') || ''}
+                  onChange={(e) => setNewItem({...newItem, tags: e.target.value.split(',').map(tag => tag.trim())})}
+                  placeholder="community, volunteer, charity"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
               </div>
             </div>
             
-            <div className="p-6 border-t flex justify-end space-x-3">
+            <div className="p-6 border-t bg-gray-50 flex justify-end space-x-3">
               <button
                 onClick={() => setShowAddItemModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddItem}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
               >
+                <Save className="w-4 h-4 mr-2" />
                 Add Item
               </button>
             </div>
@@ -577,18 +698,190 @@ export default function GalleryAdminManagement() {
               </div>
             </div>
             
-            <div className="p-6 border-t flex justify-end space-x-3">
+            <div className="p-6 border-t bg-gray-50 flex justify-end space-x-3">
               <button
                 onClick={() => setShowAddCategoryModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddCategory}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center"
               >
+                <Save className="w-4 h-4 mr-2" />
                 Add Category
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal */}
+      {showEditItemModal && editingItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Edit Gallery Item</h2>
+              <button onClick={() => setShowEditItemModal(false)} className="p-2 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
+                <input
+                  type="text"
+                  value={editingItem.title}
+                  onChange={(e) => setEditingItem({...editingItem, title: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                <textarea
+                  value={editingItem.description}
+                  onChange={(e) => setEditingItem({...editingItem, description: e.target.value})}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <select
+                  value={editingItem.category}
+                  onChange={(e) => setEditingItem({...editingItem, category: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Select a category</option>
+                  {categories.map(category => (
+                    <option key={category._id} value={category.name}>{category.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Image URL</label>
+                <input
+                  type="url"
+                  value={editingItem.imageUrl}
+                  onChange={(e) => setEditingItem({...editingItem, imageUrl: e.target.value, thumbnail: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                {editingItem.imageUrl && (
+                  <div className="mt-2">
+                    <img 
+                      src={editingItem.imageUrl} 
+                      alt="Preview" 
+                      className="w-full max-w-sm h-48 object-cover rounded-lg border"
+                    />
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={editingItem.featured}
+                    onChange={(e) => setEditingItem({...editingItem, featured: e.target.checked})}
+                    className="mr-2"
+                  />
+                  <Star className="w-4 h-4 mr-1" />
+                  Featured Item
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={editingItem.rotatingGallery}
+                    onChange={(e) => setEditingItem({...editingItem, rotatingGallery: e.target.checked})}
+                    className="mr-2"
+                  />
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  3D Gallery
+                </label>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tags (comma-separated)</label>
+                <input
+                  type="text"
+                  value={editingItem.tags?.join(', ') || ''}
+                  onChange={(e) => setEditingItem({...editingItem, tags: e.target.value.split(',').map(tag => tag.trim())})}
+                  placeholder="community, volunteer, charity"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+            
+            <div className="p-6 border-t bg-gray-50 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowEditItemModal(false)}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateItem}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Update Item
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Category Modal */}
+      {showEditCategoryModal && editingCategory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Edit Category</h2>
+              <button onClick={() => setShowEditCategoryModal(false)} className="p-2 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Category Name</label>
+                <input
+                  type="text"
+                  value={editingCategory.name}
+                  onChange={(e) => setEditingCategory({...editingCategory, name: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                <textarea
+                  value={editingCategory.description}
+                  onChange={(e) => setEditingCategory({...editingCategory, description: e.target.value})}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+            
+            <div className="p-6 border-t bg-gray-50 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowEditCategoryModal(false)}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateCategory}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Update Category
               </button>
             </div>
           </div>

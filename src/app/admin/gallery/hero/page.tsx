@@ -18,7 +18,8 @@ import {
   Monitor,
   Smartphone,
   Tablet,
-  RefreshCw
+  RefreshCw,
+  X
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -85,15 +86,41 @@ export default function AdminGalleryHero() {
   const [previewDevice, setPreviewDevice] = useState('desktop');
   const [isPlaying, setIsPlaying] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/ghero');
+        const data = await res.json();
+        if (data) setSettings(data);
+      } catch (err) {
+        console.error('Failed to fetch settings:', err);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const response = await fetch('http://localhost:5000/api/ghero/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+      const data = await response.json();
+      console.log('Saved:', data);
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    } finally {
       setIsSaving(false);
-      // Show success message or handle error
-    }, 1500);
+    }
   };
 
   const handleVideoControl = () => {
@@ -107,14 +134,95 @@ export default function AdminGalleryHero() {
     }
   };
 
-  const handleFileUpload = (type: 'video' | 'image', file: File) => {
-    // Handle file upload logic here
+  const handleFileUpload = async (type: 'video' | 'image', file: File) => {
+  if (!file) return;
+
+  setIsUploading(true);
+  setUploadProgress(0);
+
+  try {
+    const formData = new FormData();
+    formData.append(type, file); // Use 'image' or 'video' as field name
+
+    // Set correct endpoint based on file type
+    const endpoint =
+      type === 'video'
+        ? 'http://localhost:5000/api/ghero/upload-video'
+        : 'http://localhost:5000/api/ghero/upload-image';
+
+    // Simulate upload progress
+    const progressInterval = setInterval(() => {
+      setUploadProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressInterval);
+          return prev;
+        }
+        return prev + 10;
+      });
+    }, 100);
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: formData,
+    });
+
+    clearInterval(progressInterval);
+    setUploadProgress(100);
+
+    if (response.ok) {
+      const data = await response.json();
+      const uploadedUrl = data.url;
+
+      if (type === 'video') {
+        setSettings(prev => ({ ...prev, videoUrl: uploadedUrl }));
+      } else {
+        setSettings(prev => ({ ...prev, imageUrl: uploadedUrl }));
+      }
+    } else {
+      throw new Error('Upload failed');
+    }
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    // Fallback to local blob preview
     const url = URL.createObjectURL(file);
     if (type === 'video') {
       setSettings(prev => ({ ...prev, videoUrl: url }));
     } else {
       setSettings(prev => ({ ...prev, imageUrl: url }));
     }
+  } finally {
+    setIsUploading(false);
+    setUploadProgress(0);
+  }
+};
+
+
+  const triggerFileInput = (type: 'video' | 'image') => {
+    if (type === 'video' && videoInputRef.current) {
+      videoInputRef.current.click();
+    } else if (type === 'image' && imageInputRef.current) {
+      imageInputRef.current.click();
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, type: 'video' | 'image') => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      const isValidType = type === 'video' ? 
+        file.type.startsWith('video/') : 
+        file.type.startsWith('image/');
+      
+      if (isValidType) {
+        handleFileUpload(type, file);
+      } else {
+        alert(`Please select a valid ${type} file`);
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
   };
 
   const getPreviewClasses = () => {
@@ -122,7 +230,7 @@ export default function AdminGalleryHero() {
       case 'mobile':
         return 'w-[375px] h-[667px]';
       case 'tablet':
-        return 'w-[768px] h-[1024px]';
+        return 'w-[768px] h-[500px]';
       default:
         return 'w-full h-[500px]';
     }
@@ -134,6 +242,18 @@ export default function AdminGalleryHero() {
 
   const getSubtitleClasses = () => {
     return `${settings.subtitleSize[previewDevice as keyof typeof settings.subtitleSize]} max-w-3xl`;
+  };
+
+  const getCurrentMediaUrl = () => {
+    return settings.backgroundType === 'video' ? settings.videoUrl : settings.imageUrl;
+  };
+
+  const clearMedia = (type: 'video' | 'image') => {
+    if (type === 'video') {
+      setSettings(prev => ({ ...prev, videoUrl: '' }));
+    } else {
+      setSettings(prev => ({ ...prev, imageUrl: '' }));
+    }
   };
 
   return (
@@ -265,19 +385,61 @@ export default function AdminGalleryHero() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Video Upload
                       </label>
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
-                        <VideoIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600">Drop video here or click to upload</p>
-                        <input
-                          type="file"
-                          accept="video/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleFileUpload('video', file);
-                          }}
-                        />
+                      
+                      {/* Current Video Display */}
+                      {settings.videoUrl && (
+                        <div className="mb-4 relative">
+                          <video
+                            src={settings.videoUrl}
+                            className="w-full h-32 object-cover rounded-lg border"
+                            controls
+                          />
+                          <button
+                            onClick={() => clearMedia('video')}
+                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Upload Area */}
+                      <div
+                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                        onDrop={(e) => handleDrop(e, 'video')}
+                        onDragOver={handleDragOver}
+                        onClick={() => triggerFileInput('video')}
+                      >
+                        {isUploading ? (
+                          <div className="space-y-2">
+                            <RefreshCw className="w-8 h-8 text-blue-500 mx-auto animate-spin" />
+                            <p className="text-sm text-gray-600">Uploading... {uploadProgress}%</p>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${uploadProgress}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <VideoIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-600">Drop video here or click to upload</p>
+                            <p className="text-xs text-gray-500 mt-1">Supports MP4, WebM, AVI</p>
+                          </>
+                        )}
                       </div>
+                      
+                      <input
+                        ref={videoInputRef}
+                        type="file"
+                        accept="video/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload('video', file);
+                        }}
+                      />
                       
                       <div className="mt-4 space-y-3">
                         <div className="flex items-center">
@@ -327,19 +489,61 @@ export default function AdminGalleryHero() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Background Image
                       </label>
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
-                        <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600">Drop image here or click to upload</p>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleFileUpload('image', file);
-                          }}
-                        />
+                      
+                      {/* Current Image Display */}
+                      {settings.imageUrl && (
+                        <div className="mb-4 relative">
+                          <img
+                            src={settings.imageUrl}
+                            alt="Background"
+                            className="w-full h-32 object-cover rounded-lg border"
+                          />
+                          <button
+                            onClick={() => clearMedia('image')}
+                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Upload Area */}
+                      <div
+                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                        onDrop={(e) => handleDrop(e, 'image')}
+                        onDragOver={handleDragOver}
+                        onClick={() => triggerFileInput('image')}
+                      >
+                        {isUploading ? (
+                          <div className="space-y-2">
+                            <RefreshCw className="w-8 h-8 text-blue-500 mx-auto animate-spin" />
+                            <p className="text-sm text-gray-600">Uploading... {uploadProgress}%</p>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${uploadProgress}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-600">Drop image here or click to upload</p>
+                            <p className="text-xs text-gray-500 mt-1">Supports JPG, PNG, GIF, WebP</p>
+                          </>
+                        )}
                       </div>
+                      
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload('image', file);
+                        }}
+                      />
                     </div>
                   )}
                 </div>
@@ -492,7 +696,7 @@ export default function AdminGalleryHero() {
             <div className="flex justify-center">
               <div className={`${getPreviewClasses()} relative overflow-hidden rounded-lg border border-gray-200`}>
                 {/* Background */}
-                {settings.backgroundType === 'video' ? (
+                {settings.backgroundType === 'video' && settings.videoUrl ? (
                   <video
                     ref={videoRef}
                     src={settings.videoUrl}
@@ -500,13 +704,22 @@ export default function AdminGalleryHero() {
                     loop={settings.loop}
                     muted={settings.muted}
                     className="absolute w-full h-full object-cover"
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
                   />
-                ) : (
+                ) : settings.backgroundType === 'image' && settings.imageUrl ? (
                   <img
                     src={settings.imageUrl}
                     alt="Hero background"
                     className="absolute w-full h-full object-cover"
                   />
+                ) : (
+                  <div className="absolute w-full h-full bg-gray-200 flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                      <ImageIcon className="w-12 h-12 mx-auto mb-2" />
+                      <p>No media selected</p>
+                    </div>
+                  </div>
                 )}
 
                 {/* Overlay */}

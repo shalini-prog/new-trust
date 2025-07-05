@@ -23,7 +23,6 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import Link from 'next/link';
 
 interface AudioTrack {
   id: string;
@@ -61,6 +60,16 @@ interface AudioSettings {
     showOnMobile: boolean;
     position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   };
+}
+
+interface AudioConfig {
+  audioTracks: AudioTrack[];
+  globalMuted: boolean;
+  globalAutoPlay: boolean;
+  globalVolume: number;
+  backgroundMusic: AudioSettings['backgroundMusic'];
+  soundEffects: AudioSettings['soundEffects'];
+  controlsVisibility: AudioSettings['controlsVisibility'];
 }
 
 export default function AdminGalleryAudio() {
@@ -126,20 +135,162 @@ export default function AdminGalleryAudio() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTrack, setCurrentTrack] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [previewMuted, setPreviewMuted] = useState(false);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const backgroundAudioRef = useRef<HTMLAudioElement>(null);
+
+  // Initialize audio refs
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.addEventListener('ended', () => {
+        setIsPlaying(false);
+        setCurrentTrack('');
+      });
+    }
+    
+    if (backgroundAudioRef.current) {
+      backgroundAudioRef.current.addEventListener('ended', () => {
+        setPreviewPlaying(false);
+      });
+    }
+  }, []);
+
+  // Fetch configuration from API
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const res = await fetch('http://localhost:5000/api/gaudio', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
+        const data: AudioConfig = await res.json();
+        console.log('Fetched audio config:', data);
+
+        // Update state with fetched data
+        if (data.audioTracks && data.audioTracks.length > 0) {
+          setAudioTracks(data.audioTracks);
+        }
+        
+        setSettings({
+          globalMuted: data.globalMuted ?? false,
+          globalAutoPlay: data.globalAutoPlay ?? true,
+          globalVolume: data.globalVolume ?? 0.7,
+          backgroundMusic: {
+            enabled: data.backgroundMusic?.enabled ?? true,
+            track: data.backgroundMusic?.track ?? '1',
+            volume: data.backgroundMusic?.volume ?? 0.5,
+            fadeIn: data.backgroundMusic?.fadeIn ?? true,
+            fadeOut: data.backgroundMusic?.fadeOut ?? true,
+            loop: data.backgroundMusic?.loop ?? true
+          },
+          soundEffects: {
+            enabled: data.soundEffects?.enabled ?? true,
+            volume: data.soundEffects?.volume ?? 0.8,
+            hoverSound: data.soundEffects?.hoverSound ?? '2',
+            clickSound: data.soundEffects?.clickSound ?? '3',
+            transitionSound: data.soundEffects?.transitionSound ?? ''
+          },
+          controlsVisibility: {
+            showPlayPause: data.controlsVisibility?.showPlayPause ?? true,
+            showVolumeControl: data.controlsVisibility?.showVolumeControl ?? true,
+            showAutoPlayToggle: data.controlsVisibility?.showAutoPlayToggle ?? true,
+            showOnMobile: data.controlsVisibility?.showOnMobile ?? false,
+            position: data.controlsVisibility?.position ?? 'bottom-right'
+          }
+        });
+        
+        // Set preview muted state based on global setting
+        setPreviewMuted(data.globalMuted ?? false);
+        
+      } catch (error) {
+        console.error('Failed to load audio config:', error);
+        setError(error instanceof Error ? error.message : 'Failed to load audio configuration');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchConfig();
+  }, []);
+
+  // Auto-play background music in preview if enabled
+  useEffect(() => {
+    if (settings.backgroundMusic.enabled && settings.globalAutoPlay && !settings.globalMuted) {
+      const selectedTrack = audioTracks.find(track => track.id === settings.backgroundMusic.track);
+      if (selectedTrack && backgroundAudioRef.current) {
+        backgroundAudioRef.current.src = selectedTrack.url;
+        backgroundAudioRef.current.volume = settings.backgroundMusic.volume * settings.globalVolume;
+        backgroundAudioRef.current.loop = settings.backgroundMusic.loop;
+        backgroundAudioRef.current.play().catch(e => console.log('Auto-play prevented:', e));
+        setPreviewPlaying(true);
+      }
+    }
+  }, [settings.backgroundMusic.enabled, settings.backgroundMusic.track, settings.globalAutoPlay, settings.globalMuted, audioTracks]);
+
+  // Update background audio volume when settings change
+  useEffect(() => {
+    if (backgroundAudioRef.current) {
+      backgroundAudioRef.current.volume = settings.backgroundMusic.volume * settings.globalVolume;
+      backgroundAudioRef.current.muted = settings.globalMuted || previewMuted;
+    }
+  }, [settings.backgroundMusic.volume, settings.globalVolume, settings.globalMuted, previewMuted]);
 
   const handleSave = async () => {
     setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-    }, 1500);
+    setError(null);
+
+    const payload: AudioConfig = {
+      audioTracks,
+      globalMuted: settings.globalMuted,
+      globalAutoPlay: settings.globalAutoPlay,
+      globalVolume: settings.globalVolume,
+      backgroundMusic: settings.backgroundMusic,
+      soundEffects: settings.soundEffects,
+      controlsVisibility: settings.controlsVisibility
+    };
+
+    try {
+      const res = await fetch('http://localhost:5000/api/gaudio', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+
+      const result = await res.json();
+      console.log('Settings saved successfully:', result);
+      
+    } catch (error) {
+      console.error('Failed to save audio config:', error);
+      setError(error instanceof Error ? error.message : 'Failed to save audio configuration');
+    } finally {
+      setTimeout(() => setIsSaving(false), 1000);
+    }
   };
 
   const handlePlayTrack = (trackId: string) => {
     const track = audioTracks.find(t => t.id === trackId);
     if (track && audioRef.current) {
       audioRef.current.src = track.url;
-      audioRef.current.play();
+      audioRef.current.volume = settings.globalVolume;
+      audioRef.current.play().catch(e => console.error('Play failed:', e));
       setCurrentTrack(trackId);
       setIsPlaying(true);
     }
@@ -154,23 +305,61 @@ export default function AdminGalleryAudio() {
     }
   };
 
-  const handleFileUpload = (file: File, type: 'background' | 'effect') => {
-    const newTrack: AudioTrack = {
-      id: Date.now().toString(),
-      name: file.name.replace(/\.[^/.]+$/, ""),
-      url: URL.createObjectURL(file),
-      duration: 0, // Would be calculated from actual file
-      size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-      type,
-      isDefault: false
-    };
-    setAudioTracks(prev => [...prev, newTrack]);
+  const handleFileUpload = async (file: File, type: 'background' | 'effect') => {
+    setUploading(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+
+    try {
+      const res = await fetch('http://localhost:5000/api/gaudio/upload-audio', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Upload failed with status: ${res.status}`);
+      }
+
+      const newTrack = await res.json();
+      setAudioTracks(prev => [...prev, newTrack]);
+      console.log('Audio uploaded successfully:', newTrack);
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to upload audio file');
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const handleDeleteTrack = (trackId: string) => {
-    setAudioTracks(prev => prev.filter(track => track.id !== trackId));
-    if (currentTrack === trackId) {
-      handleStopTrack();
+  const handleDeleteTrack = async (trackId: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/gaudio/track/${trackId}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        throw new Error(`Delete failed with status: ${res.status}`);
+      }
+
+      setAudioTracks(prev => prev.filter(track => track.id !== trackId));
+      
+      if (currentTrack === trackId) {
+        handleStopTrack();
+      }
+      
+      // Stop background audio if it's the deleted track
+      if (settings.backgroundMusic.track === trackId && backgroundAudioRef.current) {
+        backgroundAudioRef.current.pause();
+        setPreviewPlaying(false);
+      }
+      
+    } catch (error) {
+      console.error('Delete error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to delete audio track');
     }
   };
 
@@ -180,18 +369,57 @@ export default function AdminGalleryAudio() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Preview control handlers
+  const handlePreviewPlayPause = () => {
+    if (backgroundAudioRef.current) {
+      if (previewPlaying) {
+        backgroundAudioRef.current.pause();
+        setPreviewPlaying(false);
+      } else {
+        const selectedTrack = audioTracks.find(track => track.id === settings.backgroundMusic.track);
+        if (selectedTrack) {
+          backgroundAudioRef.current.src = selectedTrack.url;
+          backgroundAudioRef.current.volume = settings.backgroundMusic.volume * settings.globalVolume;
+          backgroundAudioRef.current.loop = settings.backgroundMusic.loop;
+          backgroundAudioRef.current.play().catch(e => console.error('Play failed:', e));
+          setPreviewPlaying(true);
+        }
+      }
+    }
+  };
+
+  const handlePreviewMute = () => {
+    const newMutedState = !previewMuted;
+    setPreviewMuted(newMutedState);
+    if (backgroundAudioRef.current) {
+      backgroundAudioRef.current.muted = newMutedState || settings.globalMuted;
+    }
+  };
+
+  const handlePreviewAutoPlay = () => {
+    setSettings(prev => ({ ...prev, globalAutoPlay: !prev.globalAutoPlay }));
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-96">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 mx-auto mb-4 animate-spin text-blue-600" />
+          <p className="text-gray-600">Loading audio configuration...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center">
-          <Link
-            href="/admin/gallery"
-            className="flex items-center text-gray-600 hover:text-gray-900 mr-4"
-          >
+          <button className="flex items-center text-gray-600 hover:text-gray-900 mr-4">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Gallery
-          </Link>
+          </button>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Audio Controls Management</h1>
             <p className="text-gray-600">Manage background music and sound effects</p>
@@ -211,6 +439,23 @@ export default function AdminGalleryAudio() {
           {isSaving ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800">Error</h3>
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         {/* Settings Panel */}
@@ -280,12 +525,14 @@ export default function AdminGalleryAudio() {
                               <p className="text-xs text-gray-500">{track.size} • {formatDuration(track.duration)}</p>
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleDeleteTrack(track.id)}
-                            className="p-1 text-red-600 hover:bg-red-50 rounded"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {!track.isDefault && (
+                            <button
+                              onClick={() => handleDeleteTrack(track.id)}
+                              className="p-1 text-red-600 hover:bg-red-50 rounded"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -513,6 +760,55 @@ export default function AdminGalleryAudio() {
                           <span className="text-sm text-gray-500 w-8">{Math.round(settings.soundEffects.volume * 100)}%</span>
                         </div>
                       </div>
+                    </div><div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Hover Sound</label>
+                      <select
+                        value={settings.soundEffects.hoverSound}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          soundEffects: { ...prev.soundEffects, hoverSound: e.target.value }
+                        }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      >
+                        <option value="">None</option>
+                        {audioTracks.filter(track => track.type === 'effect').map((track) => (
+                          <option key={track.id} value={track.id}>{track.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Click Sound</label>
+                      <select
+                        value={settings.soundEffects.clickSound}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          soundEffects: { ...prev.soundEffects, clickSound: e.target.value }
+                        }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      >
+                        <option value="">None</option>
+                        {audioTracks.filter(track => track.type === 'effect').map((track) => (
+                          <option key={track.id} value={track.id}>{track.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Transition Sound</label>
+                      <select
+                        value={settings.soundEffects.transitionSound}
+                        onChange={(e) => setSettings(prev => ({ 
+                          ...prev, 
+                          soundEffects: { ...prev.soundEffects, transitionSound: e.target.value }
+                        }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      >
+                        <option value="">None</option>
+                        {audioTracks.filter(track => track.type === 'effect').map((track) => (
+                          <option key={track.id} value={track.id}>{track.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -522,7 +818,7 @@ export default function AdminGalleryAudio() {
               {activeTab === 'controls' && (
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Control Visibility</h3>
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Controls Visibility</h3>
                     
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
@@ -576,24 +872,24 @@ export default function AdminGalleryAudio() {
                           className="rounded border-gray-300 text-blue-600"
                         />
                       </div>
-                    </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Control Position</label>
-                    <select
-                      value={settings.controlsVisibility.position}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        controlsVisibility: { ...prev.controlsVisibility, position: e.target.value as any }
-                      }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                    >
-                      <option value="top-left">Top Left</option>
-                      <option value="top-right">Top Right</option>
-                      <option value="bottom-left">Bottom Left</option>
-                      <option value="bottom-right">Bottom Right</option>
-                    </select>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Controls Position</label>
+                        <select
+                          value={settings.controlsVisibility.position}
+                          onChange={(e) => setSettings(prev => ({ 
+                            ...prev, 
+                            controlsVisibility: { ...prev.controlsVisibility, position: e.target.value as any }
+                          }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        >
+                          <option value="top-left">Top Left</option>
+                          <option value="top-right">Top Right</option>
+                          <option value="bottom-left">Bottom Left</option>
+                          <option value="bottom-right">Bottom Right</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -603,71 +899,93 @@ export default function AdminGalleryAudio() {
 
         {/* Preview Panel */}
         <div className="xl:col-span-2">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Audio Controls Preview</h2>
-            
-            {/* Mock Gallery Preview */}
-            <div className="bg-gray-100 rounded-lg p-8 relative min-h-96">
-              <div className="text-center text-gray-500 mb-8">
-                <Music className="w-12 h-12 mx-auto mb-4" />
-                <p>Gallery Preview Area</p>
-                <p className="text-sm">Audio controls will appear here</p>
-              </div>
-
-              {/* Audio Controls Preview */}
-              <div className={`absolute ${
-                settings.controlsVisibility.position === 'top-left' ? 'top-4 left-4' :
-                settings.controlsVisibility.position === 'top-right' ? 'top-4 right-4' :
-                settings.controlsVisibility.position === 'bottom-left' ? 'bottom-4 left-4' :
-                'bottom-4 right-4'
-              }`}>
-                <div className={`flex items-center space-x-4 ${!settings.controlsVisibility.showOnMobile ? 'hidden md:flex' : 'flex'}`}>
-                  {settings.controlsVisibility.showPlayPause && (
-                    <button className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-700">
-                      {settings.globalAutoPlay && !settings.globalMuted ? 
-                        <Pause size={20} /> : <Play size={20} />
-                      }
-                    </button>
-                  )}
-                  
-                  {settings.controlsVisibility.showVolumeControl && (
-                    <button className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-700">
-                      {settings.globalMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                    </button>
-                  )}
-                  
-                  {settings.controlsVisibility.showAutoPlayToggle && (
-                    <button className="p-2 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-700">
-                      <Film size={20} className={settings.globalAutoPlay ? "text-purple-600" : ""} />
-                    </button>
-                  )}
-                  
-                  <div className="text-sm text-gray-600 hidden md:block">
-                    {settings.globalAutoPlay ? "Auto-play on" : "Auto-play off"}
-                  </div>
-                </div>
-              </div>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">Live Preview</h3>
+              <p className="text-sm text-gray-600">Preview how audio controls will appear in the gallery</p>
             </div>
+            
+            <div className="p-6">
+              <div className="relative bg-gray-50 rounded-lg p-8 min-h-96">
+                {/* Sample Gallery Content */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <div key={i} className="aspect-square bg-gray-200 rounded-lg flex items-center justify-center">
+                      <Film className="w-8 h-8 text-gray-400" />
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="text-center text-gray-500 text-sm mb-4">
+                  Gallery preview with audio controls
+                </div>
 
-            {/* Audio Settings Summary */}
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <h3 className="font-medium text-gray-900 mb-3">Current Settings Summary</h3>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-600">Global Volume:</span>
-                  <span className="ml-2 font-medium">{Math.round(settings.globalVolume * 100)}%</span>
-                </div>
-                <div>
-                  <span className="text-gray-600">Auto-play:</span>
-                  <span className="ml-2 font-medium">{settings.globalAutoPlay ? 'Enabled' : 'Disabled'}</span>
-                </div>
-                <div>
-                  <span className="text-gray-600">Background Music:</span>
-                  <span className="ml-2 font-medium">{settings.backgroundMusic.enabled ? 'Enabled' : 'Disabled'}</span>
-                </div>
-                <div>
-                  <span className="text-gray-600">Sound Effects:</span>
-                  <span className="ml-2 font-medium">{settings.soundEffects.enabled ? 'Enabled' : 'Disabled'}</span>
+                {/* Audio Controls Preview */}
+                {(settings.controlsVisibility.showPlayPause || settings.controlsVisibility.showVolumeControl || settings.controlsVisibility.showAutoPlayToggle) && (
+                  <div className={`absolute flex items-center space-x-2 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg ${
+                    settings.controlsVisibility.position === 'top-left' ? 'top-4 left-4' :
+                    settings.controlsVisibility.position === 'top-right' ? 'top-4 right-4' :
+                    settings.controlsVisibility.position === 'bottom-left' ? 'bottom-4 left-4' :
+                    'bottom-4 right-4'
+                  }`}>
+                    
+                    {settings.controlsVisibility.showPlayPause && (
+                      <button
+                        onClick={handlePreviewPlayPause}
+                        className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                        title={previewPlaying ? 'Pause' : 'Play'}
+                      >
+                        {previewPlaying ? (
+                          <Pause className="w-5 h-5 text-gray-700" />
+                        ) : (
+                          <Play className="w-5 h-5 text-gray-700" />
+                        )}
+                      </button>
+                    )}
+                    
+                    {settings.controlsVisibility.showVolumeControl && (
+                      <button
+                        onClick={handlePreviewMute}
+                        className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                        title={previewMuted ? 'Unmute' : 'Mute'}
+                      >
+                        {previewMuted ? (
+                          <VolumeX className="w-5 h-5 text-gray-700" />
+                        ) : (
+                          <Volume2 className="w-5 h-5 text-gray-700" />
+                        )}
+                      </button>
+                    )}
+                    
+                    {settings.controlsVisibility.showAutoPlayToggle && (
+                      <button
+                        onClick={handlePreviewAutoPlay}
+                        className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                        title={settings.globalAutoPlay ? 'Disable Auto-play' : 'Enable Auto-play'}
+                      >
+                        {settings.globalAutoPlay ? (
+                          <Eye className="w-5 h-5 text-blue-600" />
+                        ) : (
+                          <EyeOff className="w-5 h-5 text-gray-700" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Status Indicator */}
+                <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-sm">
+                  <div className="flex items-center space-x-2 text-sm">
+                    <div className={`w-2 h-2 rounded-full ${
+                      settings.backgroundMusic.enabled && previewPlaying ? 'bg-green-500' : 'bg-gray-300'
+                    }`} />
+                    <span className="text-gray-600">
+                      {settings.backgroundMusic.enabled ? 
+                        (previewPlaying ? 'Playing' : 'Paused') : 
+                        'Disabled'
+                      }
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -675,8 +993,24 @@ export default function AdminGalleryAudio() {
         </div>
       </div>
 
-      {/* Hidden Audio Element for Preview */}
+      {/* Hidden Audio Elements */}
       <audio ref={audioRef} />
+      <audio ref={backgroundAudioRef} />
+      
+      {/* Upload Progress */}
+      {uploading && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
+            <div className="flex items-center space-x-3">
+              <RefreshCw className="w-6 h-6 text-blue-600 animate-spin" />
+              <div>
+                <p className="font-medium">Uploading Audio</p>
+                <p className="text-sm text-gray-500">Please wait...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
