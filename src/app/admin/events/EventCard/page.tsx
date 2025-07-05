@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { Event } from '@/types/event';
+
 import { 
   Edit2, 
   Trash2, 
@@ -18,6 +18,132 @@ import {
   Share2,
   Settings
 } from 'lucide-react';
+// Event interface
+interface Event {
+  id: string;
+  title: string;
+  description: string;
+  date: string;
+  location: string | { name?: string; city?: string; state?: string };
+  category: string;
+  imageUrl: string;
+  maxAttendees: number;
+  currentAttendees: number;
+}
+
+// Mock data
+export const mockEvents: Event[] = [
+  {
+    id: '1',
+    title: 'Tech Innovation Summit 2025',
+    description: 'Join industry leaders as we explore the latest trends in artificial intelligence, blockchain, and quantum computing. Network with professionals and discover breakthrough technologies.',
+    date: '2025-07-15',
+    location: 'San Francisco Convention Center, CA',
+    category: 'Technology',
+    imageUrl: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&h=600&fit=crop',
+    maxAttendees: 500,
+    currentAttendees: 387
+  },
+  {
+    id: '2',
+    title: 'Creative Design Workshop',
+    description: 'A hands-on workshop focusing on modern UI/UX design principles, color theory, and user experience optimization for digital products.',
+    date: '2025-07-22',
+    location: { name: 'Design Studio Pro', city: 'New York', state: 'NY' },
+    category: 'Design',
+    imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&h=600&fit=crop',
+    maxAttendees: 50,
+    currentAttendees: 35
+  },
+  {
+    id: '3',
+    title: 'Digital Marketing Masterclass',
+    description: 'Learn advanced digital marketing strategies including SEO, social media marketing, content creation, and analytics to grow your business online.',
+    date: '2025-07-08',
+    location: 'Marketing Hub, Austin, TX',
+    category: 'Marketing',
+    imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=600&fit=crop',
+    maxAttendees: 200,
+    currentAttendees: 156
+  },
+  {
+    id: '4',
+    title: 'Startup Pitch Competition',
+    description: 'Watch emerging startups pitch their innovative ideas to a panel of venture capitalists and angel investors. Great networking opportunity!',
+    date: '2025-07-30',
+    location: { city: 'Boston', state: 'MA' },
+    category: 'Business',
+    imageUrl: 'https://images.unsplash.com/photo-1556761175-4b46a572b786?w=800&h=600&fit=crop',
+    maxAttendees: 300,
+    currentAttendees: 89
+  },
+  {
+    id: '5',
+    title: 'Photography Excellence Workshop',
+    description: 'Master the art of professional photography with hands-on sessions covering lighting, composition, post-processing, and portfolio development.',
+    date: '2025-07-12',
+    location: 'Creative Arts Center, Los Angeles, CA',
+    category: 'Arts',
+    imageUrl: 'https://images.unsplash.com/photo-1606983340126-99ab4feaa64a?w=800&h=600&fit=crop',
+    maxAttendees: 75,
+    currentAttendees: 68
+  },
+  {
+    id: '6',
+    title: 'Health & Wellness Expo',
+    description: 'Discover the latest in health technology, wellness practices, nutrition science, and fitness innovations. Includes free health screenings.',
+    date: '2025-08-05',
+    location: 'Wellness Center, Miami, FL',
+    category: 'Health',
+    imageUrl: 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop',
+    maxAttendees: 400,
+    currentAttendees: 245
+  },
+  {
+    id: '7',
+    title: 'Cryptocurrency & Blockchain Conference',
+    description: 'Deep dive into the world of digital currencies, DeFi protocols, NFTs, and blockchain technology with industry experts and developers.',
+    date: '2025-07-18',
+    location: { name: 'Crypto Convention Center', city: 'Las Vegas', state: 'NV' },
+    category: 'Finance',
+    imageUrl: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800&h=600&fit=crop',
+    maxAttendees: 600,
+    currentAttendees: 423
+  },
+  {
+    id: '8',
+    title: 'Sustainable Living Workshop',
+    description: 'Learn practical tips for eco-friendly living, sustainable practices, renewable energy solutions, and reducing your carbon footprint.',
+    date: '2025-07-25',
+    location: 'Green Community Center, Portland, OR',
+    category: 'Environment',
+    imageUrl: 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=800&h=600&fit=crop',
+    maxAttendees: 120,
+    currentAttendees: 98
+  },
+  {
+    id: '9',
+    title: 'Gaming Industry Showcase',
+    description: 'Experience the latest in game development, virtual reality, esports, and interactive entertainment. Try unreleased games and meet developers.',
+    date: '2025-08-10',
+    location: { city: 'Seattle', state: 'WA' },
+    category: 'Gaming',
+    imageUrl: 'https://images.unsplash.com/photo-1493711662062-fa541adb3fc8?w=800&h=600&fit=crop',
+    maxAttendees: 800,
+    currentAttendees: 567
+  },
+  {
+    id: '10',
+    title: 'Culinary Arts Festival',
+    description: 'A celebration of culinary excellence featuring renowned chefs, cooking demonstrations, wine tastings, and gourmet food experiences.',
+    date: '2025-07-28',
+    location: 'Culinary Institute, Napa Valley, CA',
+    category: 'Food',
+    imageUrl: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=600&fit=crop',
+    maxAttendees: 250,
+    currentAttendees: 203
+  }
+];
 
 interface AdminEventCardProps {
   event: Event;

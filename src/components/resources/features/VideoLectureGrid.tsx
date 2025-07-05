@@ -16,7 +16,8 @@ import {
   Globe,
   PlayCircle,
   Bookmark,
-  Share2
+  Share2,
+  Radio
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -36,12 +37,24 @@ interface VideoLecture {
   isNew?: boolean;
 }
 
+interface LiveLecture {
+  id: number;
+  title: string;
+  instructor: string;
+  thumbnail: string;
+  startTime: string;
+  attendees: number;
+  category: string;
+  isLive: boolean;
+}
+
 export default function VideoLectureGrid() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedLevel, setSelectedLevel] = useState('all');
   const [filteredVideos, setFilteredVideos] = useState<VideoLecture[]>([]);
   const [hoveredVideo, setHoveredVideo] = useState<number | null>(null);
+  const [liveLectures, setLiveLectures] = useState<LiveLecture[]>([]);
 
   const categories = [
     { id: 'all', name: 'All Categories', icon: Globe },
@@ -55,94 +68,44 @@ export default function VideoLectureGrid() {
   const levels = ['all', 'Beginner', 'Intermediate', 'Advanced'];
 
   const mockVideos: VideoLecture[] = [
+    // ... (keep existing mockVideos array)
+  ];
+
+  const mockLiveLectures: LiveLecture[] = [
     {
-      id: 1,
-      title: 'UPSC Current Affairs 2024 - Complete Analysis',
+      id: 101,
+      title: 'UPSC Current Affairs Live Discussion',
       instructor: 'Dr. Priya Singh',
+      thumbnail: '/api/placeholder/400/300',
+      startTime: '2024-01-20T14:30:00',
+      attendees: 1250,
       category: 'upsc',
-      description: 'Comprehensive analysis of current affairs for UPSC preparation with monthly updates and key highlights.',
-      duration: '2:45:30',
-      views: 125000,
-      rating: 4.8,
-      thumbnail: '/api/placeholder/400/300',
-      level: 'Intermediate',
-      tags: ['UPSC', 'Current Affairs', 'Analysis'],
-      uploadDate: '2024-01-15',
-      isNew: true
+      isLive: true
     },
     {
-      id: 2,
-      title: 'SSC Math Shortcuts and Tricks',
+      id: 102,
+      title: 'SSC Math Problem Solving Session',
       instructor: 'Prof. Rajesh Kumar',
+      thumbnail: '/api/placeholder/400/300',
+      startTime: '2024-01-20T16:00:00',
+      attendees: 890,
       category: 'ssc',
-      description: 'Learn time-saving math shortcuts and tricks for SSC examinations with practice problems.',
-      duration: '1:30:45',
-      views: 89000,
-      rating: 4.7,
-      thumbnail: '/api/placeholder/400/300',
-      level: 'Beginner',
-      tags: ['SSC', 'Mathematics', 'Shortcuts'],
-      uploadDate: '2024-01-10'
+      isLive: true
     },
     {
-      id: 3,
-      title: 'Banking Awareness Masterclass',
+      id: 103,
+      title: 'Banking Regulations Update',
       instructor: 'CA Anita Sharma',
+      thumbnail: '/api/placeholder/400/300',
+      startTime: '2024-01-21T11:00:00',
+      attendees: 670,
       category: 'banking',
-      description: 'Complete banking awareness course covering all banking concepts, RBI guidelines, and recent updates.',
-      duration: '3:15:20',
-      views: 67000,
-      rating: 4.9,
-      thumbnail: '/api/placeholder/400/300',
-      level: 'Advanced',
-      tags: ['Banking', 'Finance', 'RBI'],
-      uploadDate: '2024-01-08'
-    },
-    {
-      id: 4,
-      title: 'Python for Beginners - Complete Course',
-      instructor: 'Tech Academy',
-      category: 'coding',
-      description: 'Learn Python programming from scratch with hands-on projects and real-world applications.',
-      duration: '8:30:15',
-      views: 234000,
-      rating: 4.9,
-      thumbnail: '/api/placeholder/400/300',
-      level: 'Beginner',
-      tags: ['Python', 'Programming', 'Beginner'],
-      uploadDate: '2024-01-05'
-    },
-    {
-      id: 5,
-      title: 'Effective Communication Skills',
-      instructor: 'Life Coach Mentor',
-      category: 'skills',
-      description: 'Master the art of communication for personal and professional success with practical exercises.',
-      duration: '2:00:30',
-      views: 45000,
-      rating: 4.6,
-      thumbnail: '/api/placeholder/400/300',
-      level: 'Intermediate',
-      tags: ['Communication', 'Soft Skills', 'Leadership'],
-      uploadDate: '2024-01-03'
-    },
-    {
-      id: 6,
-      title: 'JavaScript ES6+ Advanced Concepts',
-      instructor: 'Code Masters',
-      category: 'coding',
-      description: 'Deep dive into advanced JavaScript concepts including ES6+, async/await, and modern frameworks.',
-      duration: '4:45:20',
-      views: 156000,
-      rating: 4.8,
-      thumbnail: '/api/placeholder/400/300',
-      level: 'Advanced',
-      tags: ['JavaScript', 'ES6', 'Advanced'],
-      uploadDate: '2024-01-01'
+      isLive: false
     }
   ];
 
   useEffect(() => {
+    // Filter videos
     let filtered = mockVideos;
 
     if (selectedCategory !== 'all') {
@@ -162,43 +125,20 @@ export default function VideoLectureGrid() {
     }
 
     setFilteredVideos(filtered);
+    
+    // Filter live lectures
+    const filteredLive = selectedCategory === 'all' 
+      ? mockLiveLectures 
+      : mockLiveLectures.filter(lecture => lecture.category === selectedCategory);
+    
+    setLiveLectures(filteredLive.filter(lecture => lecture.isLive));
   }, [searchTerm, selectedCategory, selectedLevel]);
 
-  const playVideo = (video: VideoLecture) => {
-    console.log(`Playing ${video.title}`);
-    // In real implementation, this would open video player modal
-  };
+  // ... (keep existing helper functions: playVideo, bookmarkVideo, shareVideo, formatViews, getLevelColor)
 
-  const bookmarkVideo = (video: VideoLecture) => {
-    console.log(`Bookmarked ${video.title}`);
-    // In real implementation, this would save to user's bookmarks
-  };
-
-  const shareVideo = (video: VideoLecture) => {
-    console.log(`Sharing ${video.title}`);
-    // In real implementation, this would open share modal
-  };
-
-  const formatViews = (views: number) => {
-    if (views >= 1000000) {
-      return `${(views / 1000000).toFixed(1)}M`;
-    } else if (views >= 1000) {
-      return `${(views / 1000).toFixed(1)}K`;
-    }
-    return views.toString();
-  };
-
-  const getLevelColor = (level: string) => {
-    switch (level) {
-      case 'Beginner':
-        return 'bg-green-100 text-green-800';
-      case 'Intermediate':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'Advanced':
-        return 'bg-red-100 text-red-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
@@ -217,6 +157,58 @@ export default function VideoLectureGrid() {
           Access expert-curated video lectures covering competitive exams, programming, and life skills
         </p>
       </motion.div>
+
+      {/* Live Lectures Section */}
+      {liveLectures.length > 0 && (
+        <section>
+          <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+            <Radio className="w-6 h-6 text-red-500" />
+            Live Lectures Happening Now
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            {liveLectures.map((lecture) => (
+              <motion.div
+                key={lecture.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-red-500 hover:shadow-xl transition-shadow"
+              >
+                <div className="relative">
+                  <Image
+                    src={lecture.thumbnail}
+                    alt={lecture.title}
+                    width={400}
+                    height={225}
+                    className="w-full h-48 object-cover"
+                  />
+                  <div className="absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                    <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                    LIVE
+                  </div>
+                </div>
+                <div className="p-4">
+                  <h3 className="font-bold text-lg mb-2 line-clamp-2">{lecture.title}</h3>
+                  <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
+                    <span className="flex items-center gap-1">
+                      <User className="w-4 h-4" />
+                      {lecture.instructor}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Eye className="w-4 h-4" />
+                      {formatViews(lecture.attendees)} watching
+                    </span>
+                  </div>
+                  <button className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors">
+                    <Play className="w-4 h-4" />
+                    Join Now
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Search and Filters */}
       <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
