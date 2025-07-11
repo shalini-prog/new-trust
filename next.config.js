@@ -8,9 +8,19 @@ const nextConfig = {
     },
 
     images: {
-    domains: ['res.cloudinary.com'], // Add this line
-  },
-  }
-  
-  module.exports = nextConfig
-  
+      domains: [
+        'res.cloudinary.com',
+        'tse3.mm.bing.net',
+        'tse1.mm.bing.net',
+        'tse2.mm.bing.net',
+        'tse4.mm.bing.net',
+        // Add other common image domains you might use
+        'images.unsplash.com',
+        'via.placeholder.com',
+        'picsum.photos',
+        'localhost' // For local development
+      ],
+    },
+}
+
+module.exports = nextConfig

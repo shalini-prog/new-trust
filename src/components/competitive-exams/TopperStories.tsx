@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FaQuoteLeft, FaPlay, FaLinkedin } from 'react-icons/fa';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { gsap } from 'gsap';
 
 interface TopperStory {
-  id: string;
+  _id: string;
   name: string;
   rank: number;
   exam: string;
@@ -24,16 +24,50 @@ interface TopperStory {
 }
 
 interface TopperStoriesProps {
-  toppersData?: TopperStory[];
+  apiEndpoint?: string; // Optional prop to override default endpoint
 }
 
-export default function TopperStories({ toppersData = [] }: TopperStoriesProps) {
+export default function TopperStories({ apiEndpoint = 'http://localhost:5000/api/etop' }: TopperStoriesProps) {
   const storiesRef = useRef<HTMLDivElement>(null);
   const gsapTimeline = useRef<gsap.core.Timeline | null>(null);
+  const [toppers, setToppers] = useState<TopperStory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
-  // Ensure toppersData is an array
-  const toppers = Array.isArray(toppersData) ? toppersData : [];
+  // Fetch topper stories from database
+  useEffect(() => {
+    const fetchTopperStories = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const response = await fetch(apiEndpoint);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Ensure data is an array
+        if (Array.isArray(data)) {
+          setToppers(data);
+        } else {
+          console.error('Expected array but got:', typeof data);
+          setToppers([]);
+        }
+      } catch (err) {
+        console.error('Error fetching topper stories:', err);
+        setError('Failed to load success stories. Please try again later.');
+        setToppers([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTopperStories();
+  }, [apiEndpoint]);
   
+  // GSAP animation effect
   useEffect(() => {
     // Only set up GSAP animation if we have stories and the DOM element exists
     if (storiesRef.current && toppers.length > 1) {
@@ -64,7 +98,58 @@ export default function TopperStories({ toppersData = [] }: TopperStoriesProps) 
     }
   }, [toppers]);
   
-  // If no toppers data, show a placeholder
+  // Loading state
+  if (loading) {
+    return (
+      <section id="topper-stories" className="py-20 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-900">
+        <div className="container px-4 mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold mb-4 text-slate-800 dark:text-white">
+              Topper's Interviews & Success Stories <span className="text-blue-600 dark:text-blue-400">🏅</span>
+            </h2>
+            <p className="text-xl text-slate-600 dark:text-slate-300 max-w-3xl mx-auto">
+              Get inspired by the journey and strategies of top rankers
+            </p>
+          </div>
+          
+          <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-lg max-w-4xl mx-auto">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-slate-600 dark:text-slate-300">Loading success stories...</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  
+  // Error state
+  if (error) {
+    return (
+      <section id="topper-stories" className="py-20 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-900">
+        <div className="container px-4 mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold mb-4 text-slate-800 dark:text-white">
+              Topper's Interviews & Success Stories <span className="text-blue-600 dark:text-blue-400">🏅</span>
+            </h2>
+            <p className="text-xl text-slate-600 dark:text-slate-300 max-w-3xl mx-auto">
+              Get inspired by the journey and strategies of top rankers
+            </p>
+          </div>
+          
+          <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-lg max-w-4xl mx-auto">
+            <p className="text-red-600 dark:text-red-400 mb-4">{error}</p>
+            <Button 
+              onClick={() => window.location.reload()} 
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  
+  // Empty state
   if (toppers.length === 0) {
     return (
       <section id="topper-stories" className="py-20 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-900">
@@ -115,7 +200,7 @@ export default function TopperStories({ toppersData = [] }: TopperStoriesProps) 
           <div className="relative overflow-hidden mb-16" ref={storiesRef}>
             <div className="story-cards flex gap-6">
               {toppers.map((topper) => (
-                <Card key={topper.id} className="min-w-full md:min-w-[500px] lg:min-w-[800px] shadow-lg border-0">
+                <Card key={topper._id} className="min-w-full md:min-w-[500px] lg:min-w-[800px] shadow-lg border-0">
                   <CardContent className="p-0">
                     <div className="grid grid-cols-1 md:grid-cols-2">
                       <div className="bg-blue-600 text-white p-8 flex flex-col justify-center">
@@ -138,7 +223,12 @@ export default function TopperStories({ toppersData = [] }: TopperStoriesProps) 
                         
                         {topper.socialLinks && topper.socialLinks.linkedin && (
                           <div className="mt-auto">
-                            <Button variant="ghost" size="sm" className="text-white hover:text-blue-200">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-white hover:text-blue-200"
+                              onClick={() => window.open(topper.socialLinks.linkedin, '_blank')}
+                            >
                               <FaLinkedin className="mr-2" /> Connect on LinkedIn
                             </Button>
                           </div>
@@ -161,7 +251,10 @@ export default function TopperStories({ toppersData = [] }: TopperStoriesProps) 
                         )}
                         
                         {topper.videoUrl && (
-                          <Button className="flex items-center gap-2 mt-6 bg-blue-600 hover:bg-blue-700 text-white">
+                          <Button 
+                            className="flex items-center gap-2 mt-6 bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={() => window.open(topper.videoUrl, '_blank')}
+                          >
                             <FaPlay />
                             <span>Watch Full Interview</span>
                           </Button>
@@ -179,7 +272,7 @@ export default function TopperStories({ toppersData = [] }: TopperStoriesProps) 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
           {toppers.slice(0, Math.min(3, toppers.length)).map((topper) => (
             <motion.div 
-              key={topper.id}
+              key={topper._id}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}

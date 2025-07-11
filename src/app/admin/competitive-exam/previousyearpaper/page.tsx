@@ -1,32 +1,33 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { 
   FaPlus, 
   FaEdit, 
   FaTrashAlt, 
   FaSearch, 
-  FaDownload, 
+  FaUpload, 
   FaFileAlt, 
   FaEye,
   FaFilter,
   FaSave,
   FaTimes,
   FaCheck,
-  FaExclamationTriangle
+  FaExclamationTriangle,
+  FaDownload
 } from 'react-icons/fa';
 
 interface PaperItem {
-  id: string;
+  _id: string; // MongoDB _id
   exam: string;
   year: number;
   subject: string;
   questions: number;
   difficulty: 'Easy' | 'Medium' | 'Hard';
-  downloadCount: number;
   uploadDate: string;
   fileSize: string;
+  fileName?: string;
   status: 'Active' | 'Inactive' | 'Pending';
+  fileUrl?: string;
 }
 
 interface FormData {
@@ -36,56 +37,26 @@ interface FormData {
   questions: number;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   status: 'Active' | 'Inactive' | 'Pending';
+  file?: File;
+  fileSize?: string;
+  fileUrl?: string;
 }
 
 export default function PreviousYearPapersAdmin() {
-  const [papers, setPapers] = useState<PaperItem[]>([
-    {
-      id: '1',
-      exam: 'JEE Main',
-      year: 2024,
-      subject: 'Physics',
-      questions: 90,
-      difficulty: 'Hard',
-      downloadCount: 1250,
-      uploadDate: '2024-03-15',
-      fileSize: '2.4 MB',
-      status: 'Active'
-    },
-    {
-      id: '2',
-      exam: 'NEET',
-      year: 2024,
-      subject: 'Biology',
-      questions: 90,
-      difficulty: 'Medium',
-      downloadCount: 980,
-      uploadDate: '2024-03-10',
-      fileSize: '1.8 MB',
-      status: 'Active'
-    },
-    {
-      id: '3',
-      exam: 'UPSC',
-      year: 2023,
-      subject: 'General Studies',
-      questions: 100,
-      difficulty: 'Hard',
-      downloadCount: 750,
-      uploadDate: '2024-02-20',
-      fileSize: '3.2 MB',
-      status: 'Inactive'
-    }
-  ]);
-
-  const [filteredPapers, setFilteredPapers] = useState<PaperItem[]>(papers);
+  const [papers, setPapers] = useState<PaperItem[]>([]);
+  const [filteredPapers, setFilteredPapers] = useState<PaperItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterExam, setFilterExam] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [selectedPaper, setSelectedPaper] = useState<PaperItem | null>(null);
+  const [selectedPapers, setSelectedPapers] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData>({
     exam: '',
     year: new Date().getFullYear(),
@@ -98,8 +69,60 @@ export default function PreviousYearPapersAdmin() {
   const exams = ['JEE Main', 'NEET', 'UPSC', 'GATE', 'CAT', 'CLAT'];
   const subjects = ['Physics', 'Chemistry', 'Mathematics', 'Biology', 'General Studies', 'English'];
 
+  // Load papers on component mount
+  useEffect(() => {
+    loadPapers();
+  }, []);
+
+  const loadPapers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await fetch('http://localhost:5000/api/epre');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('API Response:', data); // Debug log
+      
+      // Ensure data is an array and has the expected structure
+      const papersData = Array.isArray(data) ? data : [];
+      
+      // Validate and sanitize the data - ensure _id is used consistently
+      const sanitizedPapers = papersData.map((paper: any) => ({
+        _id: paper._id || paper.id || Math.random().toString(36).substr(2, 9),
+        exam: paper.exam || 'Unknown',
+        year: paper.year || new Date().getFullYear(),
+        subject: paper.subject || 'Unknown',
+        questions: paper.questions || 0,
+        difficulty: paper.difficulty || 'Medium',
+        uploadDate: paper.uploadDate || new Date().toISOString().split('T')[0],
+        fileSize: paper.fileSize || '0 MB',
+        fileName: paper.fileName || 'unknown_file.pdf',
+        status: paper.status || 'Pending',
+        fileUrl: paper.fileUrl || ''
+      }));
+      
+      console.log('Sanitized Papers:', sanitizedPapers); // Debug log
+      setPapers(sanitizedPapers);
+    } catch (err) {
+      console.error('Failed to load papers:', err);
+      setError('Failed to load papers. Please try again.');
+      setPapers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Filter papers based on search and filters
   useEffect(() => {
+    if (!papers || papers.length === 0) {
+      setFilteredPapers([]);
+      return;
+    }
+
     let filtered = papers.filter(paper => {
       const matchesSearch = paper.exam.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            paper.subject.toLowerCase().includes(searchTerm.toLowerCase());
@@ -112,37 +135,227 @@ export default function PreviousYearPapersAdmin() {
     setFilteredPapers(filtered);
   }, [papers, searchTerm, filterExam, filterStatus]);
 
-  const handleAddPaper = () => {
-    const newPaper: PaperItem = {
-      id: Date.now().toString(),
-      ...formData,
-      downloadCount: 0,
-      uploadDate: new Date().toISOString().split('T')[0],
-      fileSize: '0 MB'
-    };
-    
-    setPapers([...papers, newPaper]);
-    setShowAddModal(false);
-    resetForm();
-  };
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  const handleEditPaper = () => {
-    if (selectedPaper) {
-      setPapers(papers.map(paper => 
-        paper.id === selectedPaper.id 
-          ? { ...paper, ...formData }
-          : paper
-      ));
-      setShowEditModal(false);
-      resetForm();
+    const form = new FormData();
+    form.append('file', file);
+
+    try {
+      const res = await fetch('http://localhost:5000/api/epre/upload-image', {
+        method: 'POST',
+        body: form,
+      });
+
+      if (!res.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const data = await res.json();
+
+      // Save file info to formData state
+      setFormData({
+        ...formData,
+        file: file,
+        fileSize: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        fileUrl: data.url,
+      });
+
+      console.log('Uploaded file URL:', data.url);
+    } catch (err) {
+      console.error('Upload error:', err);
+      alert('Failed to upload file');
     }
   };
 
-  const handleDeletePaper = () => {
-    if (selectedPaper) {
-      setPapers(papers.filter(paper => paper.id !== selectedPaper.id));
+  const getFileSize = (file: File): string => {
+    const sizeInMB = file.size / (1024 * 1024);
+    return `${sizeInMB.toFixed(1)} MB`;
+  };
+
+  const handleAddPaper = async () => {
+    if (!formData.fileUrl) {
+      alert('Please upload a file first');
+      return;
+    }
+
+    const payload = {
+      exam: formData.exam,
+      year: formData.year,
+      subject: formData.subject,
+      questions: formData.questions,
+      difficulty: formData.difficulty,
+      status: formData.status,
+      fileSize: formData.fileSize,
+      fileName: formData.file?.name,
+      fileUrl: formData.fileUrl,
+    };
+
+    try {
+      const res = await fetch('http://localhost:5000/api/epre', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to add paper');
+      }
+
+      const savedPaper = await res.json(); // Will include _id from MongoDB
+      console.log('Added paper:', savedPaper); // Debug log
+      
+      // Reload papers to get fresh data
+      await loadPapers();
+      
+      setShowAddModal(false);
+      resetForm();
+      alert('Paper added successfully!');
+    } catch (err) {
+      console.error('Error adding paper:', err);
+      alert('Failed to add paper');
+    }
+  };
+
+  const handleEditPaper = async () => {
+    if (!selectedPaper?._id) {
+      alert('No paper selected for editing');
+      return;
+    }
+
+    const body = {
+      exam: formData.exam,
+      year: formData.year,
+      subject: formData.subject,
+      questions: formData.questions,
+      difficulty: formData.difficulty,
+      status: formData.status,
+      ...(formData.fileUrl && { fileUrl: formData.fileUrl }),
+      ...(formData.fileSize && { fileSize: formData.fileSize }),
+      ...(formData.file && { fileName: formData.file.name })
+    };
+
+    try {
+      console.log('Updating paper with ID:', selectedPaper._id); // Debug log
+      const res = await fetch(`http://localhost:5000/api/epre/${selectedPaper._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Update error response:', errorText);
+        throw new Error(`Failed to update paper: ${res.status}`);
+      }
+
+      const updated = await res.json();
+      console.log('Updated paper:', updated); // Debug log
+      
+      // Update the papers array with the updated paper
+      setPapers(papers.map(p => p._id === selectedPaper._id ? { ...p, ...updated } : p));
+      
+      setShowEditModal(false);
+      resetForm();
+      alert('Paper updated successfully!');
+    } catch (err) {
+      console.error('Failed to update paper:', err);
+      alert('Failed to update paper');
+    }
+  };
+
+  const handleDeletePaper = async () => {
+    if (!selectedPaper?._id) {
+      alert('No paper selected for deletion');
+      return;
+    }
+
+    try {
+      console.log('Deleting paper with ID:', selectedPaper._id); // Debug log
+      const res = await fetch(`http://localhost:5000/api/epre/${selectedPaper._id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Delete error response:', errorText);
+        throw new Error(`Failed to delete paper: ${res.status}`);
+      }
+
+      // Remove the paper from the papers array
+      setPapers(papers.filter(p => p._id !== selectedPaper._id));
+      
       setShowDeleteModal(false);
       setSelectedPaper(null);
+      alert('Paper deleted successfully!');
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert('Failed to delete paper');
+    }
+  };
+
+  const handleBulkAction = async () => {
+    if (selectedPapers.length === 0) {
+      alert('Please select papers to perform bulk action');
+      return;
+    }
+
+    if (!bulkAction) {
+      alert('Please select a bulk action');
+      return;
+    }
+
+    try {
+      console.log('Bulk action:', bulkAction, 'for papers:', selectedPapers); // Debug log
+      const res = await fetch('http://localhost:5000/api/epre/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ids: selectedPapers,
+          action: bulkAction === 'delete' ? 'delete' : (bulkAction === 'activate' ? 'Active' : 'Inactive'),
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Bulk action error:', errorText);
+        throw new Error(`Bulk action failed: ${res.status}`);
+      }
+
+      const result = await res.json();
+      console.log('Bulk action result:', result);
+
+      // Refresh data after bulk action
+      await loadPapers();
+      setSelectedPapers([]);
+      setBulkAction('');
+      alert('Bulk action completed successfully!');
+    } catch (error) {
+      console.error('Bulk action failed:', error);
+      alert('Bulk action failed');
+    }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedPapers(filteredPapers.map(paper => paper._id));
+    } else {
+      setSelectedPapers([]);
+    }
+  };
+
+  const handleSelectPaper = (paperId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedPapers([...selectedPapers, paperId]);
+    } else {
+      setSelectedPapers(selectedPapers.filter(id => id !== paperId));
     }
   };
 
@@ -176,6 +389,29 @@ export default function PreviousYearPapersAdmin() {
     setShowDeleteModal(true);
   };
 
+  const openViewModal = (paper: PaperItem) => {
+    setSelectedPaper(paper);
+    setShowViewModal(true);
+  };
+
+  const handleDownload = (paper: PaperItem) => {
+  if (paper.fileUrl) {
+    const link = document.createElement('a');
+    link.href = paper.fileUrl;
+
+    // Suggest file name with correct extension
+    link.download = paper.fileName || 'downloaded-paper.pdf';
+
+    // Force download without opening
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } else {
+    alert('Download link not available');
+  }
+};
+
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Active': return 'text-green-600 bg-green-100';
@@ -194,6 +430,45 @@ export default function PreviousYearPapersAdmin() {
     }
   };
 
+  // Calculate total file size safely
+  const calculateTotalFileSize = () => {
+    if (!papers || papers.length === 0) return '0';
+    
+    return papers.reduce((total, paper) => {
+      const sizeStr = paper.fileSize || '0 MB';
+      const size = parseFloat(sizeStr.replace(/[^0-9.]/g, ''));
+      return total + (isNaN(size) ? 0 : size);
+    }, 0).toFixed(1);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">Loading papers...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-500 text-6xl mb-4">⚠️</div>
+          <p className="text-red-600 dark:text-red-400 text-lg mb-4">{error}</p>
+          <button
+            onClick={loadPapers}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
@@ -205,7 +480,7 @@ export default function PreviousYearPapersAdmin() {
                 Previous Year Papers Admin
               </h1>
               <p className="text-gray-600 dark:text-gray-300">
-                Manage exam papers, upload new content, and track downloads
+                Manage exam papers, upload new content, and track uploads
               </p>
             </div>
             <button
@@ -244,12 +519,12 @@ export default function PreviousYearPapersAdmin() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 dark:text-gray-300 text-sm">Total Downloads</p>
+                <p className="text-gray-600 dark:text-gray-300 text-sm">Total File Size</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {papers.reduce((sum, paper) => sum + paper.downloadCount, 0)}
+                  {calculateTotalFileSize()} MB
                 </p>
               </div>
-              <FaDownload className="text-purple-600 text-2xl" />
+              <FaUpload className="text-purple-600 text-2xl" />
             </div>
           </div>
           
@@ -268,7 +543,7 @@ export default function PreviousYearPapersAdmin() {
 
         {/* Filters and Search */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="relative">
               <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
@@ -302,8 +577,23 @@ export default function PreviousYearPapersAdmin() {
               <option value="Pending">Pending</option>
             </select>
             
-            <button className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
-              <FaFilter /> Filter
+            <select
+              value={bulkAction}
+              onChange={(e) => setBulkAction(e.target.value)}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            >
+              <option value="">Bulk Actions</option>
+              <option value="activate">Activate</option>
+              <option value="deactivate">Deactivate</option>
+              <option value="delete">Delete</option>
+            </select>
+            
+            <button 
+              onClick={handleBulkAction}
+              disabled={selectedPapers.length === 0 || !bulkAction}
+              className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <FaFilter /> Apply
             </button>
           </div>
         </div>
@@ -314,6 +604,14 @@ export default function PreviousYearPapersAdmin() {
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
+                  <th className="px-6 py-3 text-left">
+                    <input
+                      type="checkbox"
+                      checked={selectedPapers.length === filteredPapers.length && filteredPapers.length > 0}
+                      onChange={(e) => handleSelectAll(e.target.checked)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Paper Details
                   </th>
@@ -327,7 +625,7 @@ export default function PreviousYearPapersAdmin() {
                     Difficulty
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Downloads
+                    File Info
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Status
@@ -339,7 +637,15 @@ export default function PreviousYearPapersAdmin() {
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredPapers.map((paper) => (
-                  <tr key={paper.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <tr key={paper._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={selectedPapers.includes(paper._id)}
+                        onChange={(e) => handleSelectPaper(paper._id, e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900 dark:text-white">
@@ -349,7 +655,7 @@ export default function PreviousYearPapersAdmin() {
                           {paper.subject}
                         </div>
                         <div className="text-xs text-gray-400 dark:text-gray-400">
-                          {paper.fileSize} • {paper.uploadDate}
+                          Uploaded: {paper.uploadDate}
                         </div>
                       </div>
                     </td>
@@ -364,8 +670,13 @@ export default function PreviousYearPapersAdmin() {
                         {paper.difficulty}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                      {paper.downloadCount.toLocaleString()}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900 dark:text-white">
+                        {paper.fileSize}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {paper.fileName}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(paper.status)}`}>
@@ -375,17 +686,30 @@ export default function PreviousYearPapersAdmin() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => openEditModal(paper)}
-                          className="text-blue-600 hover:text-blue-900 p-1"
+                          onClick={() => openViewModal(paper)}
+                          className="text-green-600 hover:text-green-900 p-1 transition-colors"
+                          title="View Details"
                         >
-                          <FaEdit />
-                        </button>
-                        <button className="text-green-600 hover:text-green-900 p-1">
                           <FaEye />
                         </button>
                         <button
+                          onClick={() => openEditModal(paper)}
+                          className="text-blue-600 hover:text-blue-900 p-1 transition-colors"
+                          title="Edit"
+                        >
+                          <FaEdit />
+                        </button>
+                        <button
+                          onClick={() => handleDownload(paper)}
+                          className="text-purple-600 hover:text-purple-900 p-1 transition-colors"
+                          title="Download"
+                        >
+                          <FaDownload />
+                        </button>
+                        <button
                           onClick={() => openDeleteModal(paper)}
-                          className="text-red-600 hover:text-red-900 p-1"
+                          className="text-red-600 hover:text-red-900 p-1 transition-colors"
+                          title="Delete"
                         >
                           <FaTrashAlt />
                         </button>
@@ -396,242 +720,413 @@ export default function PreviousYearPapersAdmin() {
               </tbody>
             </table>
           </div>
+          
+          {filteredPapers.length === 0 && (
+            <div className="text-center py-12">
+              <FaFileAlt className="mx-auto text-gray-400 text-6xl mb-4" />
+              <p className="text-gray-500 dark:text-gray-400 text-lg">
+                {papers.length === 0 ? 'No papers found' : 'No papers match your filters'}
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* Add Modal */}
-        {showAddModal && (
+        {/* View Modal */}
+        {showViewModal && selectedPaper && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Add New Paper</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Paper Details</h3>
                 <button
-                  onClick={() => setShowAddModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  onClick={() => setShowViewModal(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                 >
-                  <FaTimes />
+                  <FaTimes size={20} />
                 </button>
               </div>
               
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Exam
                   </label>
-                  <select
-                    value={formData.exam}
-                    onChange={(e) => setFormData({...formData, exam: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    <option value="">Select Exam</option>
-                    {exams.map(exam => (
-                      <option key={exam} value={exam}>{exam}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Subject
-                  </label>
-                  <select
-                    value={formData.subject}
-                    onChange={(e) => setFormData({...formData, subject: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    <option value="">Select Subject</option>
-                    {subjects.map(subject => (
-                      <option key={subject} value={subject}>{subject}</option>
-                    ))}
-                  </select>
+                  <p className="text-gray-900 dark:text-white">{selectedPaper.exam}</p>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Year
                   </label>
-                  <input
-                    type="number"
-                    value={formData.year}
-                    onChange={(e) => setFormData({...formData, year: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
+                  <p className="text-gray-900 dark:text-white">{selectedPaper.year}</p>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Number of Questions
+                    Subject
                   </label>
-                  <input
-                    type="number"
-                    value={formData.questions}
-                    onChange={(e) => setFormData({...formData, questions: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
+                  <p className="text-gray-900 dark:text-white">{selectedPaper.subject}</p>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Questions
+                  </label>
+                  <p className="text-gray-900 dark:text-white">{selectedPaper.questions}</p>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Difficulty
                   </label>
-                  <select
-                    value={formData.difficulty}
-                    onChange={(e) => setFormData({...formData, difficulty: e.target.value as 'Easy' | 'Medium' | 'Hard'})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    <option value="Easy">Easy</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Hard">Hard</option>
-                  </select>
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getDifficultyColor(selectedPaper.difficulty)}`}>
+                    {selectedPaper.difficulty}
+                  </span>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Status
                   </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({...formData, status: e.target.value as 'Active' | 'Inactive' | 'Pending'})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                    <option value="Pending">Pending</option>
-                  </select>
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(selectedPaper.status)}`}>
+                    {selectedPaper.status}
+                  </span>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    File Size
+                  </label>
+                  <p className="text-gray-900 dark:text-white">{selectedPaper.fileSize}</p>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Upload Date
+                  </label>
+                  <p className="text-gray-900 dark:text-white">{selectedPaper.uploadDate}</p>
+                </div>
+                
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    File Name
+                  </label>
+                  <p className="text-gray-900 dark:text-white">{selectedPaper.fileName}</p>
                 </div>
               </div>
               
-              <div className="flex gap-3 mt-6">
+              <div className="mt-6 flex justify-end gap-3">
                 <button
-                  onClick={handleAddPaper}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2"
+                  onClick={() => handleDownload(selectedPaper)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
                 >
-                  <FaSave /> Add Paper
+                  <FaDownload /> Download
                 </button>
                 <button
-                  onClick={() => setShowAddModal(false)}
-                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg"
+                  onClick={() => setShowViewModal(false)}
+                  className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
                 >
-                  Cancel
+                  Close
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Edit Modal */}
-        {showEditModal && (
+        {/* Add Modal */}
+        {showAddModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Edit Paper</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Add New Paper</h3>
                 <button
-                  onClick={() => setShowEditModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
+                  onClick={() => setShowAddModal(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                 >
-                  <FaTimes />
+                  <FaTimes size={20} />
                 </button>
               </div>
               
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Exam
-                  </label>
-                  <select
-                    value={formData.exam}
-                    onChange={(e) => setFormData({...formData, exam: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    {exams.map(exam => (
-                      <option key={exam} value={exam}>{exam}</option>
-                    ))}
-                  </select>
+              <form onSubmit={(e) => { e.preventDefault(); handleAddPaper(); }} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Exam *
+                    </label>
+                    <select
+                      value={formData.exam}
+                      onChange={(e) => setFormData({ ...formData, exam: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    >
+                      <option value="">Select Exam</option>
+                      {exams.map(exam => (
+                        <option key={exam} value={exam}>{exam}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Year *
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.year}
+                      onChange={(e) => setFormData({ ...formData, year: parseInt(e.target.value) })}
+                      min="1990"
+                      max="2030"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Subject *
+                    </label>
+                    <select
+                      value={formData.subject}
+                      onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    >
+                      <option value="">Select Subject</option>
+                      {subjects.map(subject => (
+                        <option key={subject} value={subject}>{subject}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Questions *
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.questions}
+                      onChange={(e) => setFormData({ ...formData, questions: parseInt(e.target.value) })}
+                      min="1"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Difficulty *
+                    </label>
+                    <select
+                      value={formData.difficulty}
+                      onChange={(e) => setFormData({ ...formData, difficulty: e.target.value as 'Easy' | 'Medium' | 'Hard' })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    >
+                      <option value="Easy">Easy</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Hard">Hard</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Status *
+                    </label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value as 'Active' | 'Inactive' | 'Pending' })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                      <option value="Pending">Pending</option>
+                    </select>
+                  </div>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Subject
-                  </label>
-                  <select
-                    value={formData.subject}
-                    onChange={(e) => setFormData({...formData, subject: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    {subjects.map(subject => (
-                      <option key={subject} value={subject}>{subject}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Year
+                    Upload File *
                   </label>
                   <input
-                    type="number"
-                    value={formData.year}
-                    onChange={(e) => setFormData({...formData, year: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleFileUpload}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    required
                   />
+                  {formData.fileUrl && (
+                    <p className="text-sm text-green-600 mt-1">
+                      File uploaded successfully: {formData.fileSize}
+                    </p>
+                  )}
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Number of Questions
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.questions}
-                    onChange={(e) => setFormData({...formData, questions: parseInt(e.target.value)})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Difficulty
-                  </label>
-                  <select
-                    value={formData.difficulty}
-                    onChange={(e) => setFormData({...formData, difficulty: e.target.value as 'Easy' | 'Medium' | 'Hard'})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                <div className="flex justify-end gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
                   >
-                    <option value="Easy">Easy</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Hard">Hard</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({...formData, status: e.target.value as 'Active' | 'Inactive' | 'Pending'})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
                   >
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                    <option value="Pending">Pending</option>
-                  </select>
+                    <FaSave /> Add Paper
+                  </button>
                 </div>
-              </div>
-              
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={handleEditPaper}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2"
-                >
-                  <FaSave /> Save Changes
-                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Modal */}
+        {showEditModal && selectedPaper && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Edit Paper</h3>
                 <button
                   onClick={() => setShowEditModal(false)}
-                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg"
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                 >
-                  Cancel
+                  <FaTimes size={20} />
                 </button>
               </div>
+              
+              <form onSubmit={(e) => { e.preventDefault(); handleEditPaper(); }} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Exam *
+                    </label>
+                    <select
+                      value={formData.exam}
+                      onChange={(e) => setFormData({ ...formData, exam: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    >
+                      <option value="">Select Exam</option>
+                      {exams.map(exam => (
+                        <option key={exam} value={exam}>{exam}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Year *
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.year}
+                      onChange={(e) => setFormData({ ...formData, year: parseInt(e.target.value) })}
+                      min="1990"
+                      max="2030"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Subject *
+                    </label>
+                    <select
+                      value={formData.subject}
+                      onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    >
+                      <option value="">Select Subject</option>
+                      {subjects.map(subject => (
+                        <option key={subject} value={subject}>{subject}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Questions *
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.questions}
+                      onChange={(e) => setFormData({ ...formData, questions: parseInt(e.target.value) })}
+                      min="1"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Difficulty *
+                    </label>
+                    <select
+                      value={formData.difficulty}
+                      onChange={(e) => setFormData({ ...formData, difficulty: e.target.value as 'Easy' | 'Medium' | 'Hard' })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    >
+                      <option value="Easy">Easy</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Hard">Hard</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Status *
+                    </label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value as 'Active' | 'Inactive' | 'Pending' })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      required
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                      <option value="Pending">Pending</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Upload New File (Optional)
+                  </label>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleFileUpload}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                  {formData.fileUrl && (
+                    <p className="text-sm text-green-600 mt-1">
+                      New file uploaded: {formData.fileSize}
+                    </p>
+                  )}
+                </div>
+                
+                <div className="flex justify-end gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+                  >
+                    <FaSave /> Update Paper
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -640,103 +1135,57 @@ export default function PreviousYearPapersAdmin() {
         {showDeleteModal && selectedPaper && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
-              <div className="flex items-center mb-4">
-                <FaExclamationTriangle className="text-red-500 text-2xl mr-3" />
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Delete Paper</h3>
-              </div>
-              
-              <p className="text-gray-600 dark:text-gray-300 mb-6">
-                Are you sure you want to delete the paper "{selectedPaper.exam} - {selectedPaper.subject} ({selectedPaper.year})"? 
-                This action cannot be undone.
-              </p>
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={handleDeletePaper}
-                  className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg flex items-center justify-center gap-2"
-                >
-                  <FaTrashAlt /> Delete
-                </button>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Delete Paper</h3>
                 <button
                   onClick={() => setShowDeleteModal(false)}
-                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg"
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  <FaTimes size={20} />
+                </button>
+              </div>
+              
+              <div className="mb-6">
+                <div className="flex items-center justify-center w-16 h-16 mx-auto bg-red-100 rounded-full mb-4">
+                  <FaExclamationTriangle className="text-red-600 text-2xl" />
+                </div>
+                <p className="text-center text-gray-600 dark:text-gray-300">
+                  Are you sure you want to delete this paper?
+                </p>
+                <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    <strong>Exam:</strong> {selectedPaper.exam}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    <strong>Subject:</strong> {selectedPaper.subject}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    <strong>Year:</strong> {selectedPaper.year}
+                  </p>
+                </div>
+                <p className="text-center text-sm text-red-600 dark:text-red-400 mt-2">
+                  This action cannot be undone.
+                </p>
+              </div>
+              
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors"
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={handleDeletePaper}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+                >
+                  <FaTrashAlt /> Delete
                 </button>
               </div>
             </div>
           </div>
         )}
-
-        {/* Bulk Actions Bar */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 mt-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bulk Actions</h3>
-              <select className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
-                <option>Select Action</option>
-                <option>Activate Selected</option>
-                <option>Deactivate Selected</option>
-                <option>Delete Selected</option>
-                <option>Export Selected</option>
-              </select>
-              <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
-                Apply
-              </button>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-300">
-                Showing {filteredPapers.length} of {papers.length} papers
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mt-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recent Activity</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-sm text-gray-900 dark:text-white">
-                  New paper uploaded: NEET Biology 2024
-                </span>
-              </div>
-              <span className="text-xs text-gray-500 dark:text-gray-400">2 hours ago</span>
-            </div>
-            
-            <div className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                <span className="text-sm text-gray-900 dark:text-white">
-                  JEE Main Physics 2024 downloaded 50 times
-                </span>
-              </div>
-              <span className="text-xs text-gray-500 dark:text-gray-400">5 hours ago</span>
-            </div>
-            
-            <div className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                <span className="text-sm text-gray-900 dark:text-white">
-                  UPSC General Studies 2023 marked for review
-                </span>
-              </div>
-              <span className="text-xs text-gray-500 dark:text-gray-400">1 day ago</span>
-            </div>
-            
-            <div className="flex items-center justify-between py-2">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                <span className="text-sm text-gray-900 dark:text-white">
-                  CAT Quantitative Aptitude 2023 deleted
-                </span>
-              </div>
-              <span className="text-xs text-gray-500 dark:text-gray-400">2 days ago</span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
+  );
+}

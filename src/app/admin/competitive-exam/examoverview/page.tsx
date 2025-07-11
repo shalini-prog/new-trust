@@ -22,7 +22,7 @@ import {
 
 // Types
 interface Exam {
-  id: number;
+  _id: number;
   title: string;
   description: string;
   icon: string;
@@ -71,75 +71,53 @@ export default function ExamOverviewAdmin() {
     isActive: true
   });
 
-  // Mock data - replace with actual API calls
-  useEffect(() => {
-    setTimeout(() => {
-      setExams([
-        {
-          id: 1,
-          title: 'UPSC Civil Services',
-          description: 'The most prestigious examination for administrative services in India',
-          icon: 'award',
-          eligibility: 'Bachelor degree, Age: 21-32 years',
-          pattern: 'Prelims (Objective) + Mains (Descriptive) + Interview',
-          opportunities: 'IAS, IPS, IFS and other Group A services',
-          isActive: true,
-          createdAt: '2024-01-15',
-          updatedAt: '2024-06-20'
-        },
-        {
-          id: 2,
-          title: 'SSC CGL',
-          description: 'Staff Selection Commission Combined Graduate Level Examination',
-          icon: 'users',
-          eligibility: 'Bachelor degree, Age: 18-27 years',
-          pattern: 'Tier 1 (Objective) + Tier 2 (Objective) + Tier 3 (Descriptive)',
-          opportunities: 'Assistant Section Officer, Inspector, Sub Inspector',
-          isActive: true,
-          createdAt: '2024-01-20',
-          updatedAt: '2024-06-18'
-        },
-        {
-          id: 3,
-          title: 'IBPS PO',
-          description: 'Institute of Banking Personnel Selection Probationary Officer',
-          icon: 'briefcase',
-          eligibility: 'Bachelor degree, Age: 20-30 years',
-          pattern: 'Prelims + Mains + Interview',
-          opportunities: 'Probationary Officer in Public Sector Banks',
-          isActive: false,
-          createdAt: '2024-02-10',
-          updatedAt: '2024-05-15'
-        }
-      ]);
-      setIsLoading(false);
-    }, 1000);
-  }, []);
+  
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (editingExam) {
-      // Update existing exam
-      setExams(exams.map(exam => 
-        exam.id === editingExam.id 
-          ? { ...exam, ...formData, updatedAt: new Date().toISOString().split('T')[0] }
-          : exam
-      ));
-    } else {
-      // Add new exam
-      const newExam: Exam = {
-        id: Math.max(...exams.map(e => e.id), 0) + 1,
-        ...formData,
-        createdAt: new Date().toISOString().split('T')[0],
-        updatedAt: new Date().toISOString().split('T')[0]
-      };
-      setExams([...exams, newExam]);
-    }
-    
-    resetForm();
-    setShowModal(false);
+  useEffect(() => {
+  const fetchExams = async () => {
+    const res = await fetch('http://localhost:5000/api/eoverview');
+    const data = await res.json();
+    setExams(data);
+    setIsLoading(false);
   };
+
+  fetchExams();
+}, []);
+
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  const method = editingExam ? 'PUT' : 'POST';
+  const url = editingExam 
+    ? `http://localhost:5000/api/eoverview/${editingExam._id}` 
+    : 'http://localhost:5000/api/eoverview';
+
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(formData),
+  });
+
+  const updatedExam = await res.json();
+
+  if (editingExam) {
+    setExams(prev => prev.map(exam => exam._id === updatedExam._id ? updatedExam : exam));
+  } else {
+    setExams(prev => [...prev, updatedExam]);
+  }
+
+  resetForm();
+  setShowModal(false);
+};
+
+const handleDelete = async (_id: number) => {
+  if (window.confirm('Are you sure?')) {
+    await fetch(`http://localhost:5000/api/eoverview/${_id}`, { method: 'DELETE' });
+    setExams(prev => prev.filter(exam => exam._id !== _id));
+  }
+};
+
+
+ 
 
   const handleEdit = (exam: Exam) => {
     setEditingExam(exam);
@@ -155,11 +133,7 @@ export default function ExamOverviewAdmin() {
     setShowModal(true);
   };
 
-  const handleDelete = (id: number) => {
-    if (window.confirm('Are you sure you want to delete this exam?')) {
-      setExams(exams.filter(exam => exam.id !== id));
-    }
-  };
+  
 
   const resetForm = () => {
     setFormData({
@@ -183,10 +157,10 @@ export default function ExamOverviewAdmin() {
     return <Award className={className} />;
   };
 
-  const toggleCardExpanded = (id: number) => {
+  const toggleCardExpanded = (_id: number) => {
     setExpandedCards(prev => ({
       ...prev,
-      [id]: !prev[id]
+      [_id]: !prev[_id]
     }));
   };
 
@@ -294,7 +268,7 @@ export default function ExamOverviewAdmin() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredExams.map((exam) => (
           <motion.div
-            key={exam.id}
+            key={exam._id}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
@@ -311,10 +285,10 @@ export default function ExamOverviewAdmin() {
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
-                    onClick={() => toggleCardExpanded(exam.id)}
+                    onClick={() => toggleCardExpanded(exam._id)}
                     className="p-1 text-gray-400 hover:text-blue-500"
                   >
-                    {expandedCards[exam.id] ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    {expandedCards[exam._id] ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </button>
                   <button
                     onClick={() => handleEdit(exam)}
@@ -323,7 +297,7 @@ export default function ExamOverviewAdmin() {
                     <Edit className="h-4 w-4" />
                   </button>
                   <button
-                    onClick={() => handleDelete(exam.id)}
+                    onClick={() => handleDelete(exam._id)}
                     className="p-1 text-gray-400 hover:text-red-500"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -334,7 +308,7 @@ export default function ExamOverviewAdmin() {
               <h3 className="text-lg font-semibold text-gray-900 mb-2">{exam.title}</h3>
               <p className="text-gray-600 text-sm mb-4">{exam.description}</p>
               
-              {expandedCards[exam.id] && (
+              {expandedCards[exam._id] && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}

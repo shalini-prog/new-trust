@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { FaDownload, FaChevronDown, FaChevronUp, FaClock, FaFileAlt } from 'react-icons/fa';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,47 +8,66 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface PaperItem {
-  id: string;
+  _id: string;
   exam: string;
   year: number;
   subject: string;
   questions: number;
   difficulty: 'Easy' | 'Medium' | 'Hard';
-  downloadCount: number;
+  uploadDate: string;
+  fileSize: string;
+  fileName: string;
+  fileUrl: string;
+  status: 'Active' | 'Inactive' | 'Pending';
 }
 
-interface PreviousYearPapersProps {
-  previousPapersData?: {
-    exams: string[];
-    years: number[];
-    subjects: string[];
-    papers: PaperItem[];
-  };
-}
-
-export default function PreviousYearPapers({ previousPapersData }: PreviousYearPapersProps) {
-  // Add default value to prevent undefined errors
-  const data = previousPapersData || {
-    exams: [],
-    years: [],
-    subjects: [],
-    papers: []
-  };
-
+export default function PreviousYearPapers() {
+  const [papers, setPapers] = useState<PaperItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedExam, setSelectedExam] = useState<string>('all');
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedSubject, setSelectedSubject] = useState<string>('all');
   
-  // Ensure data.papers exists before filtering
-  const papersToFilter = data.papers || [];
+  // Fetch papers from API
+  useEffect(() => {
+    const fetchPapers = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('http://localhost:5000/api/epre');
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch papers');
+        }
+        
+        const data = await response.json();
+        // Filter only active papers
+        const activePapers = data.filter((paper: PaperItem) => paper.status === 'Active');
+        setPapers(activePapers);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchPapers();
+  }, []);
   
-  const filteredPapers = papersToFilter.filter(paper => {
+  // Generate filter options from papers data
+  const exams = [...new Set(papers.map(paper => paper.exam))].sort();
+  const years = [...new Set(papers.map(paper => paper.year))].sort((a, b) => b - a);
+  const subjects = [...new Set(papers.map(paper => paper.subject))].sort();
+  
+  // Filter papers based on selected criteria
+  const filteredPapers = papers.filter(paper => {
     const examMatch = selectedExam === 'all' || paper.exam === selectedExam;
     const yearMatch = selectedYear === 'all' || paper.year === parseInt(selectedYear);
     const subjectMatch = selectedSubject === 'all' || paper.subject === selectedSubject;
     return examMatch && yearMatch && subjectMatch;
   });
   
+  // Group papers by exam
   const examGroups = filteredPapers.reduce((groups, paper) => {
     const exam = paper.exam;
     if (!groups[exam]) {
@@ -57,6 +76,66 @@ export default function PreviousYearPapers({ previousPapersData }: PreviousYearP
     groups[exam].push(paper);
     return groups;
   }, {} as Record<string, PaperItem[]>);
+  
+  // Handle download
+  const handleDownload = (paper: PaperItem) => {
+  if (paper.fileUrl) {
+    const link = document.createElement('a');
+    link.href = paper.fileUrl;
+
+    // Suggest file name with correct extension
+    link.download = paper.fileName || 'downloaded-paper.pdf';
+
+    // Force download without opening
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } else {
+    alert('Download link not available');
+  }
+};
+
+  
+  // Format date
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+  
+  if (loading) {
+    return (
+      <section id="previous-papers" className="py-20 bg-white dark:bg-slate-900">
+        <div className="container px-4 mx-auto">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-slate-600 dark:text-slate-300">Loading papers...</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  
+  if (error) {
+    return (
+      <section id="previous-papers" className="py-20 bg-white dark:bg-slate-900">
+        <div className="container px-4 mx-auto">
+          <div className="text-center">
+            <p className="text-red-600 dark:text-red-400">Error: {error}</p>
+            <Button 
+              onClick={() => window.location.reload()} 
+              className="mt-4"
+              variant="outline"
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </section>
+    );
+  }
   
   return (
     <section id="previous-papers" className="py-20 bg-white dark:bg-slate-900">
@@ -95,7 +174,7 @@ export default function PreviousYearPapers({ previousPapersData }: PreviousYearP
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Exams</SelectItem>
-                {data.exams && data.exams.map((exam, index) => (
+                {exams.map((exam, index) => (
                   <SelectItem key={`exam-${index}-${exam}`} value={exam}>{exam}</SelectItem>
                 ))}
               </SelectContent>
@@ -113,7 +192,7 @@ export default function PreviousYearPapers({ previousPapersData }: PreviousYearP
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Years</SelectItem>
-                {data.years && data.years.map((year, index) => (
+                {years.map((year, index) => (
                   <SelectItem key={`year-${index}-${year}`} value={year.toString()}>{year}</SelectItem>
                 ))}
               </SelectContent>
@@ -131,7 +210,7 @@ export default function PreviousYearPapers({ previousPapersData }: PreviousYearP
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Subjects</SelectItem>
-                {data.subjects && data.subjects.map((subject, index) => (
+                {subjects.map((subject, index) => (
                   <SelectItem key={`subject-${index}-${subject}`} value={subject}>{subject}</SelectItem>
                 ))}
               </SelectContent>
@@ -162,7 +241,7 @@ export default function PreviousYearPapers({ previousPapersData }: PreviousYearP
                   <AccordionContent className="px-6 pb-4">
                     <div className="space-y-4">
                       {examGroups[exam].map((paper) => (
-                        <Card key={paper.id} className="hover:shadow-md transition-shadow">
+                        <Card key={paper._id} className="hover:shadow-md transition-shadow">
                           <CardContent className="p-4">
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                               <div>
@@ -176,13 +255,21 @@ export default function PreviousYearPapers({ previousPapersData }: PreviousYearP
                                   <span className="flex items-center">
                                     <FaClock className="mr-1" /> {paper.difficulty}
                                   </span>
+                                  <span className="flex items-center">
+                                    📅 {formatDate(paper.uploadDate)}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-400 mt-1">
+                                  File: {paper.fileName} • Size: {paper.fileSize}
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
-                                  {paper.downloadCount} downloads
-                                </span>
-                                <Button variant="outline" size="sm" className="flex items-center gap-2">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="flex items-center gap-2"
+                                  onClick={() => handleDownload(paper)}
+                                >
                                   <FaDownload className="text-blue-600" />
                                   <span>Download</span>
                                 </Button>

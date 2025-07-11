@@ -1,29 +1,59 @@
 'use client';
 
-import { RefObject, useState } from 'react';
+import { RefObject, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Award, Clock, Users, Briefcase } from 'lucide-react';
+import { Award, Clock, Users, Briefcase, Loader2 } from 'lucide-react';
 
 interface Exam {
-  id: number;
+  _id: string;
   title: string;
   description: string;
   icon: string;
   eligibility: string;
   pattern: string;
   opportunities: string;
+  isActive: boolean;
 }
 
 interface ExamOverviewProps {
-  examData: Exam[];
   examOverviewRef: RefObject<HTMLDivElement>;
 }
 
-export default function ExamOverview({ examData, examOverviewRef }: ExamOverviewProps) {
-  // Track which cards have their details visible
-  const [expandedCards, setExpandedCards] = useState<{[key: number]: boolean}>({});
+export default function ExamOverview({ examOverviewRef }: ExamOverviewProps) {
+  const [examData, setExamData] = useState<Exam[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedCards, setExpandedCards] = useState<{[key: string]: boolean}>({});
 
-  const toggleCardDetails = (examId: number) => {
+  // Fetch exam data from API
+  useEffect(() => {
+    const fetchExamData = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('http://localhost:5000/api/eoverview');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Filter only active exams
+        const activeExams = data.filter((exam: Exam) => exam.isActive);
+        setExamData(activeExams);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching exam data:', err);
+        setError('Failed to load exam data. Please try again later.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchExamData();
+  }, []);
+
+  const toggleCardDetails = (examId: string) => {
     setExpandedCards(prev => ({
       ...prev,
       [examId]: !prev[examId]
@@ -44,6 +74,60 @@ export default function ExamOverview({ examData, examOverviewRef }: ExamOverview
         return <Award className="w-12 h-12 text-blue-600" />;
     }
   };
+
+  // Loading state
+  if (loading) {
+    return (
+      <section id="exams" className="py-16 md:py-24 bg-white" ref={examOverviewRef}>
+        <div className="container mx-auto px-4">
+          <div className="flex flex-col items-center justify-center min-h-[400px]">
+            <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+            <p className="text-xl text-gray-600">Loading exam data...</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <section id="exams" className="py-16 md:py-24 bg-white" ref={examOverviewRef}>
+        <div className="container mx-auto px-4">
+          <div className="flex flex-col items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <div className="text-red-500 text-6xl mb-4">⚠️</div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-2">Error Loading Data</h3>
+              <p className="text-gray-600 mb-4">{error}</p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // No data state
+  if (examData.length === 0) {
+    return (
+      <section id="exams" className="py-16 md:py-24 bg-white" ref={examOverviewRef}>
+        <div className="container mx-auto px-4">
+          <div className="flex flex-col items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <div className="text-gray-400 text-6xl mb-4">📚</div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-2">No Exams Available</h3>
+              <p className="text-gray-600">No active exams found at the moment.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section id="exams" className="py-16 md:py-24 bg-white" ref={examOverviewRef}>
@@ -67,7 +151,7 @@ export default function ExamOverview({ examData, examOverviewRef }: ExamOverview
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {examData.map((exam) => (
             <motion.div 
-              key={exam.id}
+              key={exam._id}
               className="exam-card"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -86,14 +170,14 @@ export default function ExamOverview({ examData, examOverviewRef }: ExamOverview
                   <div className="mt-6 flex justify-center">
                     <button 
                       className="px-4 py-2 bg-blue-100 text-blue-600 rounded-lg font-medium hover:bg-blue-200 transition-colors"
-                      onClick={() => toggleCardDetails(exam.id)}
+                      onClick={() => toggleCardDetails(exam._id)}
                     >
-                      {expandedCards[exam.id] ? 'Hide Details' : 'View Details'}
+                      {expandedCards[exam._id] ? 'Hide Details' : 'View Details'}
                     </button>
                   </div>
                   
                   {/* Details Panel with transition */}
-                  {expandedCards[exam.id] && (
+                  {expandedCards[exam._id] && (
                     <motion.div 
                       className="mt-6 pt-4 border-t border-gray-200"
                       initial={{ opacity: 0, height: 0 }}

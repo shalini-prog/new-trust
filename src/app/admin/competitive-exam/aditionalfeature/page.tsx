@@ -1,6 +1,6 @@
 'use client';
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+
+import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { PieChart, Pie, Cell } from 'recharts';
 import { 
@@ -22,7 +22,9 @@ import {
   Calendar,
   Target,
   Brain,
-  AlertCircle
+  AlertCircle,
+  CheckCircle,
+  RefreshCw
 } from 'lucide-react';
 
 const AdditionalFeaturesAdmin = () => {
@@ -30,6 +32,9 @@ const AdditionalFeaturesAdmin = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isEditing, setIsEditing] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle', 'saving', 'success', 'error'
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Sample data states
   const [progressData, setProgressData] = useState([
@@ -142,6 +147,153 @@ const AdditionalFeaturesAdmin = () => {
     status: 'upcoming'
   });
 
+  // Store initial data for comparison
+  const [initialData, setInitialData] = useState({});
+
+  // Initialize data snapshot on component mount
+  useEffect(() => {
+    const snapshot = {
+      progressData: [...progressData],
+      subjectData: [...subjectData],
+      features: [...features],
+      dailyTargets: [...dailyTargets],
+      recommendations: [...recommendations],
+      upcomingExams: [...upcomingExams]
+    };
+    setInitialData(snapshot);
+  }, []); // Empty dependency array to run only once
+
+  // Check for unsaved changes
+  useEffect(() => {
+    // Only check for changes if we have initial data
+    if (Object.keys(initialData).length === 0) return;
+    
+    const currentData = {
+      progressData,
+      subjectData,
+      features,
+      dailyTargets,
+      recommendations,
+      upcomingExams
+    };
+    
+    const hasChanges = JSON.stringify(currentData) !== JSON.stringify(initialData);
+    setHasUnsavedChanges(hasChanges);
+  }, [progressData, subjectData, features, dailyTargets, recommendations, upcomingExams, initialData]);
+
+  // Simulate API data fetching
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Simulate API call - in real app, this would be your actual API endpoint
+         const res = await fetch('http://localhost:5000/api/eadd');
+         const data = await res.json();
+
+        // For demo purposes, we'll use the initial state data
+        
+
+        setProgressData(data.progressData || []);
+        setSubjectData(data.subjectData || []);
+        setFeatures(data.features || []);
+        setDailyTargets(data.dailyTargets || []);
+        setRecommendations(data.recommendations || []);
+        setUpcomingExams(data.upcomingExams || []);
+        
+        // Set initial data snapshot after fetching
+        setInitialData(data);
+      } catch (err) {
+        console.error('Error loading data:', err);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Handle Save Function
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveStatus('saving');
+    
+    try {
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Prepare data for saving
+      const dataToSave = {
+        progressData,
+        subjectData,
+        features,
+        dailyTargets,
+        recommendations,
+        upcomingExams,
+        timestamp: new Date().toISOString()
+      };
+      
+      // In a real application, this would be an API call
+      console.log('Saving data:', dataToSave);
+      
+      // Simulate API call
+       await fetch('http://localhost:5000/api/eadd/save', {
+         method: 'POST',
+        headers: {
+           'Content-Type': 'application/json',
+         },
+         body: JSON.stringify(dataToSave)
+       });
+      
+      // Update initial data snapshot
+      setInitialData({
+        progressData: [...progressData],
+        subjectData: [...subjectData],
+        features: [...features],
+        dailyTargets: [...dailyTargets],
+        recommendations: [...recommendations],
+        upcomingExams: [...upcomingExams]
+      });
+      
+      setSaveStatus('success');
+      setHasUnsavedChanges(false);
+      
+      // Reset success status after 3 seconds
+      setTimeout(() => {
+        setSaveStatus('idle');
+      }, 3000);
+      
+    } catch (error) {
+      console.error('Error saving data:', error);
+      setSaveStatus('error');
+      
+      // Reset error status after 3 seconds
+      setTimeout(() => {
+        setSaveStatus('idle');
+      }, 3000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Auto-save function (optional)
+  const handleAutoSave = async () => {
+    if (hasUnsavedChanges && saveStatus === 'idle') {
+      await handleSave();
+    }
+  };
+
+  // Reset all data to initial state
+  const handleReset = () => {
+    if (window.confirm('Are you sure you want to reset all data? This will discard all unsaved changes.')) {
+      if (initialData.progressData) {
+        setProgressData([...initialData.progressData]);
+        setSubjectData([...initialData.subjectData]);
+        setFeatures([...initialData.features]);
+        setDailyTargets([...initialData.dailyTargets]);
+        setRecommendations([...initialData.recommendations]);
+        setUpcomingExams([...initialData.upcomingExams]);
+        setHasUnsavedChanges(false);
+      }
+    }
+  };
+
   // Helper functions
   const calculateDaysLeft = (date) => {
     const today = new Date();
@@ -177,20 +329,28 @@ const AdditionalFeaturesAdmin = () => {
     return colors[color] || 'text-blue-600';
   };
 
-  // Add/Edit/Delete functions
+  // Add/Edit/Delete functions - FIXED VERSIONS
   const addFeature = () => {
     if (newFeature.title && newFeature.description) {
       const feature = {
-        id: Date.now(),
+        id: Date.now(), // Using timestamp as unique ID
         ...newFeature
       };
-      setFeatures([...features, feature]);
+      setFeatures(prevFeatures => [...prevFeatures, feature]);
       setNewFeature({ title: '', description: '', icon: 'TrendingUp', color: 'blue' });
     }
   };
 
-  const deleteFeature = (id) => {
-    setFeatures(features.filter(f => f.id !== id));
+  // FIXED: This is the main fix for the delete issue
+  const deleteFeature = (idToDelete) => {
+    console.log('Deleting feature with ID:', idToDelete);
+    console.log('Current features:', features);
+    
+    setFeatures(prevFeatures => {
+      const filteredFeatures = prevFeatures.filter(f => f.id !== idToDelete);
+      console.log('Filtered features:', filteredFeatures);
+      return filteredFeatures;
+    });
   };
 
   const addTarget = () => {
@@ -199,19 +359,21 @@ const AdditionalFeaturesAdmin = () => {
         id: Date.now(),
         ...newTarget
       };
-      setDailyTargets([...dailyTargets, target]);
+      setDailyTargets(prevTargets => [...prevTargets, target]);
       setNewTarget({ task: '', completed: false });
     }
   };
 
   const toggleTarget = (id) => {
-    setDailyTargets(dailyTargets.map(target => 
-      target.id === id ? { ...target, completed: !target.completed } : target
-    ));
+    setDailyTargets(prevTargets => 
+      prevTargets.map(target => 
+        target.id === id ? { ...target, completed: !target.completed } : target
+      )
+    );
   };
 
   const deleteTarget = (id) => {
-    setDailyTargets(dailyTargets.filter(t => t.id !== id));
+    setDailyTargets(prevTargets => prevTargets.filter(t => t.id !== id));
   };
 
   const addRecommendation = () => {
@@ -220,13 +382,13 @@ const AdditionalFeaturesAdmin = () => {
         id: Date.now(),
         ...newRecommendation
       };
-      setRecommendations([...recommendations, recommendation]);
+      setRecommendations(prevRecs => [...prevRecs, recommendation]);
       setNewRecommendation({ type: 'focus', message: '', priority: 'medium' });
     }
   };
 
   const deleteRecommendation = (id) => {
-    setRecommendations(recommendations.filter(r => r.id !== id));
+    setRecommendations(prevRecs => prevRecs.filter(r => r.id !== id));
   };
 
   const addExam = () => {
@@ -236,13 +398,13 @@ const AdditionalFeaturesAdmin = () => {
         ...newExam,
         daysLeft: calculateDaysLeft(newExam.date)
       };
-      setUpcomingExams([...upcomingExams, exam]);
+      setUpcomingExams(prevExams => [...prevExams, exam]);
       setNewExam({ name: '', date: '', status: 'upcoming' });
     }
   };
 
   const deleteExam = (id) => {
-    setUpcomingExams(upcomingExams.filter(e => e.id !== id));
+    setUpcomingExams(prevExams => prevExams.filter(e => e.id !== id));
   };
 
   const tabs = [
@@ -256,13 +418,42 @@ const AdditionalFeaturesAdmin = () => {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-8">
+        {/* Header with Save Status */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Additional Features Admin Panel
-          </h1>
-          <p className="text-gray-600 dark:text-gray-300">
-            Manage dashboard data, features, and user experience elements
-          </p>
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+                Additional Features Admin Panel
+              </h1>
+              <p className="text-gray-600 dark:text-gray-300">
+                Manage dashboard data, features, and user experience elements
+              </p>
+            </div>
+            
+            {/* Save Status Indicator */}
+            <div className="flex items-center gap-4">
+              {hasUnsavedChanges && (
+                <div className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm">Unsaved changes</span>
+                </div>
+              )}
+              
+              {saveStatus === 'success' && (
+                <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="text-sm">All changes saved</span>
+                </div>
+              )}
+              
+              {saveStatus === 'error' && (
+                <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm">Error saving changes</span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Tab Navigation */}
@@ -452,13 +643,15 @@ const AdditionalFeaturesAdmin = () => {
                         </div>
                         <button
                           onClick={() => deleteFeature(feature.id)}
-                          className="text-red-500 hover:text-red-700"
+                          className="text-red-500 hover:text-red-700 p-1"
+                          title="Delete feature"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
                       <h3 className="font-medium text-gray-900 dark:text-white">{feature.title}</h3>
                       <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{feature.description}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">ID: {feature.id}</p>
                     </div>
                   ))}
                 </div>
@@ -471,12 +664,11 @@ const AdditionalFeaturesAdmin = () => {
             <div className="space-y-6">
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-semibold">Daily Targets Management</h2>
-                </div>
+                  <h2 className="text-xl font-semibold">Daily Targets Management</h2></div>
 
                 {/* Add Target Form */}
                 <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
-                  <h3 className="text-lg font-medium mb-3">Add New Target</h3>
+                  <h3 className="text-lg font-medium mb-3">Add New Daily Target</h3>
                   <div className="flex gap-4">
                     <input
                       type="text"
@@ -489,7 +681,8 @@ const AdditionalFeaturesAdmin = () => {
                       onClick={addTarget}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                     >
-                      <Plus className="h-4 w-4" />
+                      <Plus className="h-4 w-4 inline mr-2" />
+                      Add Target
                     </button>
                   </div>
                 </div>
@@ -499,47 +692,25 @@ const AdditionalFeaturesAdmin = () => {
                   {dailyTargets.map((target) => (
                     <div key={target.id} className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
                       <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => toggleTarget(target.id)}
-                          className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                            target.completed 
-                              ? 'border-green-500 bg-green-100 dark:bg-green-900/20' 
-                              : 'border-gray-300 dark:border-gray-600'
-                          }`}
-                        >
-                          {target.completed && (
-                            <svg className="h-4 w-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                          )}
-                        </button>
-                        <span className={`${target.completed ? 'line-through opacity-70' : ''} text-gray-900 dark:text-white`}>
+                        <input
+                          type="checkbox"
+                          checked={target.completed}
+                          onChange={() => toggleTarget(target.id)}
+                          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                        />
+                        <span className={`${target.completed ? 'line-through text-gray-500' : 'text-gray-900 dark:text-white'}`}>
                           {target.task}
                         </span>
                       </div>
                       <button
                         onClick={() => deleteTarget(target.id)}
-                        className="text-red-500 hover:text-red-700"
+                        className="text-red-500 hover:text-red-700 p-1"
+                        title="Delete target"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ))}
-                </div>
-
-                {/* Progress Summary */}
-                <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600 dark:text-gray-300">
-                      {dailyTargets.filter(t => t.completed).length}/{dailyTargets.length} completed
-                    </span>
-                    <div className="w-32 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-green-500 rounded-full transition-all duration-300"
-                        style={{ width: `${(dailyTargets.filter(t => t.completed).length / dailyTargets.length) * 100}%` }}
-                      ></div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -556,42 +727,40 @@ const AdditionalFeaturesAdmin = () => {
                 {/* Add Recommendation Form */}
                 <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
                   <h3 className="text-lg font-medium mb-3">Add New Recommendation</h3>
-                  <div className="space-y-4">
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <select
-                        value={newRecommendation.type}
-                        onChange={(e) => setNewRecommendation({...newRecommendation, type: e.target.value})}
-                        className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      >
-                        <option value="focus">Focus Area</option>
-                        <option value="improvement">Needs Improvement</option>
-                        <option value="praise">Doing Great</option>
-                      </select>
-                      <select
-                        value={newRecommendation.priority}
-                        onChange={(e) => setNewRecommendation({...newRecommendation, priority: e.target.value})}
-                        className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      >
-                        <option value="high">High Priority</option>
-                        <option value="medium">Medium Priority</option>
-                        <option value="low">Low Priority</option>
-                      </select>
-                    </div>
-                    <textarea
-                      placeholder="Recommendation message"
-                      value={newRecommendation.message}
-                      onChange={(e) => setNewRecommendation({...newRecommendation, message: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      rows="3"
-                    />
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <select
+                      value={newRecommendation.type}
+                      onChange={(e) => setNewRecommendation({...newRecommendation, type: e.target.value})}
+                      className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    >
+                      <option value="focus">Focus</option>
+                      <option value="improvement">Improvement</option>
+                      <option value="praise">Praise</option>
+                    </select>
+                    <select
+                      value={newRecommendation.priority}
+                      onChange={(e) => setNewRecommendation({...newRecommendation, priority: e.target.value})}
+                      className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    >
+                      <option value="low">Low Priority</option>
+                      <option value="medium">Medium Priority</option>
+                      <option value="high">High Priority</option>
+                    </select>
                     <button
                       onClick={addRecommendation}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                     >
                       <Plus className="h-4 w-4 inline mr-2" />
-                      Add Recommendation
+                      Add
                     </button>
                   </div>
+                  <textarea
+                    placeholder="Recommendation message"
+                    value={newRecommendation.message}
+                    onChange={(e) => setNewRecommendation({...newRecommendation, message: e.target.value})}
+                    className="mt-3 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    rows="3"
+                  />
                 </div>
 
                 {/* Recommendations List */}
@@ -600,24 +769,25 @@ const AdditionalFeaturesAdmin = () => {
                     <div key={rec.id} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            rec.type === 'focus' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300' :
-                            rec.type === 'improvement' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300' :
-                            'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            rec.type === 'focus' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300' :
+                            rec.type === 'improvement' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300' :
+                            'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
                           }`}>
                             {rec.type}
                           </span>
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            rec.priority === 'high' ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300' :
-                            rec.priority === 'medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300' :
-                            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            rec.priority === 'high' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300' :
+                            rec.priority === 'medium' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300' :
+                            'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
                           }`}>
-                            {rec.priority} priority
+                            {rec.priority}
                           </span>
                         </div>
                         <button
                           onClick={() => deleteRecommendation(rec.id)}
-                          className="text-red-500 hover:text-red-700"
+                          className="text-red-500 hover:text-red-700 p-1"
+                          title="Delete recommendation"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -641,10 +811,10 @@ const AdditionalFeaturesAdmin = () => {
                 {/* Add Exam Form */}
                 <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
                   <h3 className="text-lg font-medium mb-3">Add New Exam</h3>
-                  <div className="grid md:grid-cols-3 gap-4">
+                  <div className="grid md:grid-cols-4 gap-4">
                     <input
                       type="text"
-                      placeholder="Exam Name"
+                      placeholder="Exam name"
                       value={newExam.name}
                       onChange={(e) => setNewExam({...newExam, name: e.target.value})}
                       className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -662,51 +832,47 @@ const AdditionalFeaturesAdmin = () => {
                     >
                       <option value="upcoming">Upcoming</option>
                       <option value="completed">Completed</option>
-                      <option value="cancelled">Cancelled</option>
                     </select>
+                    <button
+                      onClick={addExam}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      <Plus className="h-4 w-4 inline mr-2" />
+                      Add Exam
+                    </button>
                   </div>
-                  <button
-                    onClick={addExam}
-                    className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                  >
-                    <Plus className="h-4 w-4 inline mr-2" />
-                    Add Exam
-                  </button>
                 </div>
 
                 {/* Exams List */}
                 <div className="space-y-3">
                   {upcomingExams.map((exam) => (
-                    <div key={exam.id} className="flex justify-between items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
-                      <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white">{exam.name}</h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          {new Date(exam.date).toLocaleDateString('en-US', { 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
-                          })}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`px-3 py-1 text-sm font-medium rounded-full ${
-                          exam.status === 'upcoming' && exam.daysLeft <= 30 
-                            ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300'
-                            : exam.status === 'upcoming' 
-                            ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-300'
-                            : exam.status === 'completed'
-                            ? 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                            : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300'
-                        }`}>
-                          {exam.status === 'completed' 
-                            ? 'Completed' 
-                            : exam.status === 'cancelled'
-                            ? 'Cancelled'
-                            : `${exam.daysLeft} days left`}
-                        </span>
+                    <div key={exam.id} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-medium text-gray-900 dark:text-white">{exam.name}</h3>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Date: {exam.date}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              exam.status === 'upcoming' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300' :
+                              'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
+                            }`}>
+                              {exam.status}
+                            </span>
+                            {exam.status === 'upcoming' && (
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                exam.daysLeft <= 7 ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300' :
+                                exam.daysLeft <= 30 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300' :
+                                'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                              }`}>
+                                {exam.daysLeft > 0 ? `${exam.daysLeft} days left` : 'Today'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                         <button
                           onClick={() => deleteExam(exam.id)}
-                          className="text-red-500 hover:text-red-700"
+                          className="text-red-500 hover:text-red-700 p-1"
+                          title="Delete exam"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -714,131 +880,43 @@ const AdditionalFeaturesAdmin = () => {
                     </div>
                   ))}
                 </div>
-
-                {/* Exam Statistics */}
-                <div className="mt-6 grid md:grid-cols-3 gap-4">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Calendar className="h-5 w-5 text-blue-600" />
-                      <h4 className="font-medium text-blue-900 dark:text-blue-300">Total Exams</h4>
-                    </div>
-                    <p className="text-2xl font-bold text-blue-600">{upcomingExams.length}</p>
-                  </div>
-                  <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Clock className="h-5 w-5 text-orange-600" />
-                      <h4 className="font-medium text-orange-900 dark:text-orange-300">Upcoming</h4>
-                    </div>
-                    <p className="text-2xl font-bold text-orange-600">
-                      {upcomingExams.filter(e => e.status === 'upcoming').length}
-                    </p>
-                  </div>
-                  <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Award className="h-5 w-5 text-green-600" />
-                      <h4 className="font-medium text-green-900 dark:text-green-300">Completed</h4>
-                    </div>
-                    <p className="text-2xl font-bold text-green-600">
-                      {upcomingExams.filter(e => e.status === 'completed').length}
-                    </p>
-                  </div>
-                </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Preview Section */}
-        <div className="mt-12">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Live Preview</h2>
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                Changes are applied in real-time
-              </div>
-            </div>
-
-            {/* Mini Preview of Dashboard */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-900">
-              <h3 className="text-lg font-medium mb-4 flex items-center">
-                <BookOpen className="h-5 w-5 mr-2 text-blue-600" />
-                Study Dashboard Preview
-              </h3>
-
-              <div className="grid md:grid-cols-2 gap-6">
-                {/* Left: Mini Charts */}
-                <div>
-                  <h4 className="font-medium text-gray-700 dark:text-gray-200 mb-2">Weekly Performance</h4>
-                  <div className="h-32 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={progressData.slice(-4)}>
-                        <Line type="monotone" dataKey="score" stroke="#3B82F6" strokeWidth={2} dot={{ r: 2 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                {/* Right: Stats */}
-                <div className="space-y-3">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-3">
-                    <h4 className="font-medium text-sm mb-1">Today's Progress</h4>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-gray-600 dark:text-gray-400">
-                        {dailyTargets.filter(t => t.completed).length}/{dailyTargets.length} completed
-                      </span>
-                      <div className="w-16 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 rounded-full"
-                          style={{ width: `${(dailyTargets.filter(t => t.completed).length / dailyTargets.length) * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-purple-50 dark:bg-purple-900/20 rounded p-3">
-                    <h4 className="font-medium text-sm mb-1">AI Recommendations</h4>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {recommendations.length} active recommendations
-                    </p>
-                  </div>
-
-                  <div className="bg-green-50 dark:bg-green-900/20 rounded p-3">
-                    <h4 className="font-medium text-sm mb-1">Upcoming Exams</h4>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {upcomingExams.filter(e => e.status === 'upcoming').length} exams scheduled
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Features Preview */}
-              <div className="mt-6">
-                <h4 className="font-medium text-gray-700 dark:text-gray-200 mb-3">Active Features</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {features.slice(0, 4).map((feature) => (
-                    <div key={feature.id} className="text-center p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
-                      <div className={`mx-auto mb-2 p-2 bg-gray-100 dark:bg-gray-700 rounded-lg w-fit ${getColorClass(feature.color)}`}>
-                        {getIconComponent(feature.icon)}
-                      </div>
-                      <h5 className="text-xs font-medium text-gray-900 dark:text-white">{feature.title}</h5>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Save Changes Button */}
-        <div className="mt-8 flex justify-center">
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="px-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg shadow-lg hover:shadow-xl transition-all duration-300"
+        {/* Fixed Action Buttons */}
+        <div className="fixed bottom-6 right-6 flex gap-3">
+          <button
+            onClick={handleReset}
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 shadow-lg flex items-center gap-2"
+            title="Reset all changes"
           >
-            <Save className="h-5 w-5 inline mr-2" />
-            Save All Changes
-          </motion.button>
+            <RefreshCw className="h-4 w-4" />
+            Reset
+          </button>
+          
+          <button
+            onClick={handleSave}
+            disabled={isSaving || !hasUnsavedChanges}
+            className={`px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 ${
+              isSaving || !hasUnsavedChanges
+                ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
+            }`}
+          >
+            {isSaving ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4" />
+                Save Changes
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { FaSearch, FaFilter, FaDownload, FaStar, FaTimes, FaSortAmountDown } from 'react-icons/fa';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,7 +25,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 interface StudyMaterial {
-  id: string;
+  _id: string;
   title: string;
   category: string;
   type: string;
@@ -34,25 +34,60 @@ interface StudyMaterial {
   downloadUrl: string;
   rating: number;
   downloads: number;
-  date?: string; // For sorting by recency
+  date?: string;
+  description?: string;
+  fileSize?: string;
+  status: 'active' | 'inactive' | 'pending';
 }
 
 interface StudyMaterialsProps {
-  studyMaterials: StudyMaterial[];
   studyMaterialsRef?: React.RefObject<HTMLDivElement>;
 }
 
-export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef }: StudyMaterialsProps) {
+export default function StudyMaterials({ studyMaterialsRef }: StudyMaterialsProps) {
   const carouselRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [sortBy, setSortBy] = useState<'popularity' | 'rating' | 'recency'>('popularity');
   
+  // Data states
+  const [studyMaterials, setStudyMaterials] = useState<StudyMaterial[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
   // Filter states
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
-  
+
+  // Fetch study materials from database
+  useEffect(() => {
+    const fetchStudyMaterials = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('http://localhost:5000/api/emat');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Filter only active materials
+        const activeMaterials = data.filter((material: StudyMaterial) => material.status === 'active');
+        setStudyMaterials(activeMaterials);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching study materials:', err);
+        setError('Failed to load study materials. Please try again later.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStudyMaterials();
+  }, []);
+
   // Extract unique subjects and types for filters
   const availableSubjects = Array.from(new Set(studyMaterials.map(material => material.subject)));
   const availableTypes = Array.from(new Set(studyMaterials.map(material => material.type)));
@@ -101,7 +136,8 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
       searchQuery === '' || 
       material.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       material.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      material.type.toLowerCase().includes(searchQuery.toLowerCase());
+      material.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (material.description && material.description.toLowerCase().includes(searchQuery.toLowerCase()));
     
     // Subject filter
     const subjectMatch = selectedSubjects.length === 0 || selectedSubjects.includes(material.subject);
@@ -124,6 +160,76 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
   const featuredMaterials = [...studyMaterials]
     .sort((a, b) => b.downloads - a.downloads)
     .slice(0, 5);
+
+  // Handle download click
+  const handleDownload = async (material: StudyMaterial) => {
+    try {
+      // Increment download count
+      await fetch(`/api/emat/${material._id}/download`, {
+        method: 'POST',
+      });
+      
+      // Update local state
+      setStudyMaterials(prev => 
+        prev.map(m => 
+          m._id === material._id 
+            ? { ...m, downloads: m.downloads + 1 }
+            : m
+        )
+      );
+      
+      // Trigger download
+      if (material.downloadUrl) {
+        const link = document.createElement('a');
+        link.href = material.downloadUrl;
+        link.download = material.title;
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (err) {
+      console.error('Error downloading material:', err);
+    }
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <section id="study-materials" className="py-20 bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800" ref={studyMaterialsRef || null}>
+        <div className="container px-4 mx-auto">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-slate-600 dark:text-slate-400">Loading study materials...</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <section id="study-materials" className="py-20 bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800" ref={studyMaterialsRef || null}>
+        <div className="container px-4 mx-auto">
+          <div className="text-center">
+            <div className="text-red-500 mb-4">
+              <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <p className="text-slate-600 dark:text-slate-400 mb-4">{error}</p>
+            <Button 
+              onClick={() => window.location.reload()} 
+              variant="outline"
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section id="study-materials" className="py-20 bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800" ref={studyMaterialsRef || null}>
@@ -315,7 +421,7 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
             <div className="flex overflow-x-auto gap-6 pb-4 scrollbar-hide">
               {featuredMaterials.length > 0 ? (
                 featuredMaterials.map((material) => (
-                  <Card key={`featured-${material.id}`} className="min-w-[300px] max-w-[300px] material-card hover:shadow-lg transition-shadow">
+                  <Card key={`featured-${material._id}`} className="min-w-[300px] max-w-[300px] material-card hover:shadow-lg transition-shadow">
                     <CardContent className="p-0">
                       <div className="relative h-40 bg-slate-200 dark:bg-slate-700 rounded-t-lg overflow-hidden">
                         <img 
@@ -323,7 +429,6 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
                           alt={material.title} 
                           className="w-full h-full object-cover"
                           onError={(e) => {
-                            // Fallback for broken images
                             const target = e.target as HTMLImageElement;
                             target.src = '/placeholder-image.jpg';
                           }}
@@ -334,11 +439,15 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
                       </div>
                       <div className="p-4">
                         <h4 className="font-semibold text-lg mb-1 text-slate-800 dark:text-white truncate">{material.title}</h4>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 truncate">{material.subject} | {material.type}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-2 truncate">{material.subject} | {material.type}</p>
+                        {material.fileSize && (
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">Size: {material.fileSize}</p>
+                        )}
                         <Button 
                           variant="outline" 
                           size="sm" 
                           className="w-full flex items-center justify-center gap-2"
+                          onClick={() => handleDownload(material)}
                         >
                           <FaDownload className="text-blue-600" />
                           <span>Download ({material.downloads})</span>
@@ -360,7 +469,7 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
             {sortedMaterials.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {sortedMaterials.map((material) => (
-                  <Card key={`all-${material.id}`} className="material-card hover:shadow-lg transition-shadow">
+                  <Card key={`all-${material._id}`} className="material-card hover:shadow-lg transition-shadow">
                     <CardContent className="p-0">
                       <div className="relative h-40 bg-slate-200 dark:bg-slate-700 rounded-t-lg overflow-hidden">
                         <img 
@@ -368,7 +477,6 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
                           alt={material.title} 
                           className="w-full h-full object-cover"
                           onError={(e) => {
-                            // Fallback for broken images
                             const target = e.target as HTMLImageElement;
                             target.src = '/placeholder-image.jpg';
                           }}
@@ -379,11 +487,15 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
                       </div>
                       <div className="p-4">
                         <h4 className="font-semibold text-lg mb-1 text-slate-800 dark:text-white truncate">{material.title}</h4>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 truncate">{material.subject} | {material.type}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-2 truncate">{material.subject} | {material.type}</p>
+                        {material.fileSize && (
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">Size: {material.fileSize}</p>
+                        )}
                         <Button 
                           variant="outline" 
                           size="sm" 
                           className="w-full flex items-center justify-center gap-2"
+                          onClick={() => handleDownload(material)}
                         >
                           <FaDownload className="text-blue-600" />
                           <span>Download ({material.downloads})</span>
@@ -420,7 +532,7 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
               {sortedMaterials.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {sortedMaterials.map((material) => (
-                    <Card key={`${category.id}-${material.id}`} className="material-card hover:shadow-lg transition-shadow">
+                    <Card key={`${category.id}-${material._id}`} className="material-card hover:shadow-lg transition-shadow">
                       <CardContent className="p-0">
                         <div className="relative h-40 bg-slate-200 dark:bg-slate-700 rounded-t-lg overflow-hidden">
                           <img 
@@ -428,7 +540,6 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
                             alt={material.title} 
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              // Fallback for broken images
                               const target = e.target as HTMLImageElement;
                               target.src = '/placeholder-image.jpg';
                             }}
@@ -439,11 +550,15 @@ export default function StudyMaterials({ studyMaterials = [], studyMaterialsRef 
                         </div>
                         <div className="p-4">
                           <h4 className="font-semibold text-lg mb-1 text-slate-800 dark:text-white truncate">{material.title}</h4>
-                          <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 truncate">{material.subject} | {material.type}</p>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 mb-2 truncate">{material.subject} | {material.type}</p>
+                          {material.fileSize && (
+                            <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">Size: {material.fileSize}</p>
+                          )}
                           <Button 
                             variant="outline" 
                             size="sm" 
                             className="w-full flex items-center justify-center gap-2"
+                            onClick={() => handleDownload(material)}
                           >
                             <FaDownload className="text-blue-600" />
                             <span>Download ({material.downloads})</span>

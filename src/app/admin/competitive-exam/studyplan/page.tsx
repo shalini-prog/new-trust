@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import axios from 'axios'
 import { motion } from 'framer-motion';
 import { 
   Plus, 
@@ -24,7 +25,7 @@ import {
 
 // Types
 interface StudyStep {
-  id: number;
+  _id: number;
   title: string;
   description: string;
   icon: string;
@@ -56,52 +57,21 @@ export default function StudyPlanAdmin() {
 
   // Simulate API calls
   useEffect(() => {
-    setTimeout(() => {
-      setStudySteps([
-        {
-          id: 1,
-          title: 'Plan Your Study Schedule',
-          description: 'Create a comprehensive study schedule that covers all subjects and topics. Allocate time based on your strengths and weaknesses.',
-          icon: 'calendar-check',
-          order: 1,
-          isActive: true
-        },
-        {
-          id: 2,
-          title: 'Understand the Syllabus',
-          description: 'Thoroughly analyze the exam syllabus and marking scheme. Know what topics are important and carry more weightage.',
-          icon: 'book-open',
-          order: 2,
-          isActive: true
-        },
-        {
-          id: 3,
-          title: 'Practice Mock Tests',
-          description: 'Regular mock tests help you understand the exam pattern and improve your time management skills.',
-          icon: 'clipboard-check',
-          order: 3,
-          isActive: true
-        },
-        {
-          id: 4,
-          title: 'Time Management',
-          description: 'Learn to manage your time effectively during the exam. Practice solving questions within the stipulated time.',
-          icon: 'clock',
-          order: 4,
-          isActive: true
-        },
-        {
-          id: 5,
-          title: 'Mental Preparation',
-          description: 'Stay mentally strong and positive. Practice meditation and stress management techniques.',
-          icon: 'brain',
-          order: 5,
-          isActive: true
-        }
-      ]);
+  const fetchSteps = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/eplan');
+      setStudySteps(res.data);
+    } catch (err) {
+      console.error('Fetch Error:', err);
+      showNotification('error', 'Failed to fetch study steps');
+    } finally {
       setIsLoading(false);
-    }, 1000);
-  }, []);
+    }
+  };
+
+  fetchSteps();
+}, []);
+
 
   const showNotification = (type: 'success' | 'error', message: string) => {
     setNotification({ type, message });
@@ -124,74 +94,97 @@ export default function StudyPlanAdmin() {
     setShowModal(true);
   };
 
-  const handleSave = () => {
-    if (!formData.title.trim() || !formData.description.trim()) {
-      showNotification('error', 'Please fill in all required fields');
-      return;
-    }
+  const handleSave = async () => {
+  if (!formData.title.trim() || !formData.description.trim()) {
+    showNotification('error', 'Please fill in all required fields');
+    return;
+  }
 
+  try {
     if (editingStep) {
       // Update existing step
-      setStudySteps(steps => 
-        steps.map(step => 
-          step.id === editingStep.id 
-            ? { ...step, ...formData }
-            : step
+      await axios.put(`http://localhost:5000/api/eplan/${editingStep._id}`, formData);
+      setStudySteps(steps =>
+        steps.map(step =>
+          step._id === editingStep._id ? { ...step, ...formData } : step
         )
       );
       showNotification('success', 'Study step updated successfully');
     } else {
-      // Add new step
-      const newStep: StudyStep = {
-        id: Math.max(...studySteps.map(s => s.id), 0) + 1,
-        ...formData,
-        order: studySteps.length + 1,
-        isActive: true
-      };
-      setStudySteps(steps => [...steps, newStep]);
+      // Create new step
+      const res = await axios.post('http://localhost:5000/api/eplan', formData);
+      setStudySteps(steps => [...steps, res.data]);
       showNotification('success', 'New study step added successfully');
     }
+  } catch (err) {
+    console.error('Save Error:', err);
+    showNotification('error', 'Failed to save study step');
+  }
 
-    setShowModal(false);
-    setFormData({ title: '', description: '', icon: 'book-open' });
-  };
+  setShowModal(false);
+  setFormData({ title: '', description: '', icon: 'book-open' });
+};
 
-  const handleDelete = (id: number) => {
-    if (window.confirm('Are you sure you want to delete this study step?')) {
-      setStudySteps(steps => steps.filter(step => step.id !== id));
-      showNotification('success', 'Study step deleted successfully');
-    }
-  };
 
-  const handleToggleActive = (id: number) => {
-    setStudySteps(steps =>
-      steps.map(step =>
-        step.id === id ? { ...step, isActive: !step.isActive } : step
-      )
-    );
-  };
+  const handleDelete = async (_id: number) => {
+  if (!window.confirm('Are you sure you want to delete this study step?')) return;
 
-  const moveStep = (id: number, direction: 'up' | 'down') => {
-    const currentIndex = studySteps.findIndex(step => step.id === id);
-    if (
-      (direction === 'up' && currentIndex === 0) ||
-      (direction === 'down' && currentIndex === studySteps.length - 1)
-    ) {
-      return;
-    }
+  try {
+    await axios.delete(`http://localhost:5000/api/eplan/${_id}`);
+    setStudySteps(steps => steps.filter(step => step._id !== _id));
+    showNotification('success', 'Study step deleted successfully');
+  } catch (err) {
+    console.error('Delete Error:', err);
+    showNotification('error', 'Failed to delete step');
+  }
+};
 
-    const newSteps = [...studySteps];
-    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    
-    [newSteps[currentIndex], newSteps[targetIndex]] = [newSteps[targetIndex], newSteps[currentIndex]];
-    
-    // Update order numbers
-    newSteps.forEach((step, index) => {
-      step.order = index + 1;
+
+  const handleToggleActive = async (_id: number) => {
+  try {
+    const updatedStep = studySteps.find(step => step._id === _id);
+    if (!updatedStep) return;
+
+    await axios.put(`http://localhost:5000/api/eplan/${_id}`, {
+      ...updatedStep,
+      isActive: !updatedStep.isActive
     });
 
-    setStudySteps(newSteps);
-  };
+    setStudySteps(steps =>
+      steps.map(step =>
+        step._id === _id ? { ...step, isActive: !step.isActive } : step
+      )
+    );
+  } catch (err) {
+    console.error('Toggle Error:', err);
+    showNotification('error', 'Failed to toggle step');
+  }
+};
+
+
+  const moveStep = async (_id: number, direction: 'up' | 'down') => {
+  const currentIndex = studySteps.findIndex(step => step._id === _id);
+  if (
+    (direction === 'up' && currentIndex === 0) ||
+    (direction === 'down' && currentIndex === studySteps.length - 1)
+  ) return;
+
+  const newSteps = [...studySteps];
+  const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+  [newSteps[currentIndex], newSteps[targetIndex]] = [newSteps[targetIndex], newSteps[currentIndex]];
+
+  newSteps.forEach((step, index) => step.order = index + 1);
+  setStudySteps(newSteps);
+
+  try {
+    await axios.post('http://localhost:5000/api/eplan/reorder', { steps: newSteps.map(({ _id, order }) => ({ _id, order })) });
+    showNotification('success', 'Steps reordered successfully');
+  } catch (err) {
+    console.error('Reorder Error:', err);
+    showNotification('error', 'Failed to reorder steps');
+  }
+};
+
 
   const getIconComponent = (iconName: string) => {
     const iconObj = availableIcons.find(icon => icon.value === iconName);
@@ -252,7 +245,7 @@ export default function StudyPlanAdmin() {
       <div className="space-y-4">
         {studySteps.map((step, index) => (
           <motion.div
-            key={step.id}
+            key={step._id}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
@@ -295,14 +288,14 @@ export default function StudyPlanAdmin() {
               <div className="flex items-center space-x-2">
                 {/* Move buttons */}
                 <button
-                  onClick={() => moveStep(step.id, 'up')}
+                  onClick={() => moveStep(step._id, 'up')}
                   disabled={index === 0}
                   className="p-2 text-gray-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ArrowUp className="h-4 w-4" />
                 </button>
                 <button
-                  onClick={() => moveStep(step.id, 'down')}
+                  onClick={() => moveStep(step._id, 'down')}
                   disabled={index === studySteps.length - 1}
                   className="p-2 text-gray-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
@@ -311,7 +304,7 @@ export default function StudyPlanAdmin() {
                 
                 {/* Action buttons */}
                 <button
-                  onClick={() => handleToggleActive(step.id)}
+                  onClick={() => handleToggleActive(step._id)}
                   className={`p-2 rounded hover:bg-gray-100 ${
                     step.isActive ? 'text-green-500' : 'text-gray-400'
                   }`}
@@ -325,7 +318,7 @@ export default function StudyPlanAdmin() {
                   <Edit className="h-4 w-4" />
                 </button>
                 <button
-                  onClick={() => handleDelete(step.id)}
+                  onClick={() => handleDelete(step._id)}
                   className="p-2 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100"
                 >
                   <Trash2 className="h-4 w-4" />

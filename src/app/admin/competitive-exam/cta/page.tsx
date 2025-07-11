@@ -81,14 +81,47 @@ export default function CTAAdminPage() {
   const [activeTab, setActiveTab] = useState('content');
   const [showPreview, setShowPreview] = useState(false);
 
-  const handleSave = async () => {
-    setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      alert('CTA content saved successfully!');
-    }, 1500);
+  useEffect(() => {
+  const fetchCTA = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/ecta');
+      const data = await res.json();
+      if (data) setCTAContent(data);
+    } catch (err) {
+      console.error('Failed to fetch CTA:', err);
+    }
   };
+
+  fetchCTA();
+}, []);
+
+
+  const handleSave = async () => {
+  setIsLoading(true);
+  try {
+    const response = await fetch('http://localhost:5000/api/ecta', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(ctaContent)
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert('CTA content saved successfully!');
+    } else {
+      alert(`Failed to save CTA content: ${result.message}`);
+    }
+  } catch (error) {
+    console.error('Error saving CTA:', error);
+    alert('An error occurred while saving.');
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   const addBenefit = () => {
     setCTAContent(prev => ({

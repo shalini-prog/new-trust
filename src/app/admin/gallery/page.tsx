@@ -152,22 +152,21 @@ export default function GalleryAdminManagement() {
   }, []);
 
   // Update category counts whenever gallery items change
-  useEffect(() => {
-    updateCategoryItemCounts(galleryItems);
-  }, [galleryItems]);
-
   const fetchData = async () => {
-    try {
-      const [itemsRes, categoriesRes] = await Promise.all([
-        API.get('/items'),
-        API.get('/categories')
-      ]);
-      setGalleryItems(itemsRes.data);
-      setCategories(categoriesRes.data);
-    } catch (err) {
-      console.error('Error loading gallery data:', err);
-    }
-  };
+  try {
+    const [itemsRes, categoriesRes] = await Promise.all([
+      API.get('/items'),
+      API.get('/categories')
+    ]);
+
+    setGalleryItems(itemsRes.data.data);     // ✅ Extract array from `data`
+    setCategories(categoriesRes.data.data);  // ✅ Extract array from `data`
+  } catch (err) {
+    console.error('Error loading gallery data:', err);
+  }
+};
+
+
 
   // Add new item
   const handleAddItem = async () => {
