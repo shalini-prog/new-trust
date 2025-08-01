@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Search, 
@@ -19,17 +20,43 @@ import {
   BarChart2,
   Users,
   Settings,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  CheckCircle,
+  Tag,
+  Calendar,
+  TrendingUp
 } from 'lucide-react';
 
 interface Law {
-  id: string;
+  _id: string;
   title: string;
   act: string;
   sections: string[];
   keywords: string[];
   summary: string;
   fullText: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface SettingsConfig {
+  fuzzySearch: boolean;
+  keywordHighlighting: boolean;
+  searchSuggestions: boolean;
+  adminApproval: boolean;
+  auditLog: boolean;
+}
+
+interface AnalyticsData {
+  totalLaws: number;
+  totalKeywords: number;
+  totalActs: number;
+  averageKeywordsPerLaw: number;
+  mostCommonKeywords: { keyword: string; count: number }[];
+  actDistribution: { act: string; count: number }[];
+  recentLaws: { id: string; title: string; createdAt: string }[];
+  lawsWithMostSections: { id: string; title: string; sectionCount: number }[];
 }
 
 const AdminLawFinder = () => {
@@ -51,51 +78,171 @@ const AdminLawFinder = () => {
   const [newSection, setNewSection] = useState('');
   const [newKeyword, setNewKeyword] = useState('');
   const [activeTab, setActiveTab] = useState<'laws' | 'analytics' | 'settings'>('laws');
-  const [stats, setStats] = useState({
+  const [analytics, setAnalytics] = useState<AnalyticsData>({
     totalLaws: 0,
-    totalSearches: 0,
-    popularLaws: [] as {id: string, title: string, searches: number}[],
-    recentEdits: [] as {lawId: string, title: string, editedAt: string}[]
+    totalKeywords: 0,
+    totalActs: 0,
+    averageKeywordsPerLaw: 0,
+    mostCommonKeywords: [],
+    actDistribution: [],
+    recentLaws: [],
+    lawsWithMostSections: []
   });
 
-  // Load initial data
-  useEffect(() => {
-    // In a real app, this would fetch from your API
-    const initialLaws: Law[] = [
-      {
-        id: 'ipc-498a',
-        title: 'Husband or relative of husband subjecting woman to cruelty',
-        act: 'Indian Penal Code (IPC)',
-        sections: ['Section 498A'],
-        keywords: ['dowry', 'harassment', 'marital cruelty', 'domestic violence'],
-        summary: 'This section deals with cruelty by husband or his relatives towards a married woman, including demands for dowry, mental or physical torture.',
-        fullText: 'Whoever, being the husband or the relative of the husband of a woman, subjects such woman to cruelty shall be punished with imprisonment for a term which may extend to three years and shall also be liable to fine. Explanation.—For the purposes of this section, "cruelty" means— (a) any wilful conduct which is of such a nature as is likely to drive the woman to commit suicide or to cause grave injury or danger to life, limb or health (whether mental or physical) of the woman; or (b) harassment of the woman where such harassment is with a view to coercing her or any person related to her to meet any unlawful demand for any property or valuable security or is on account of failure by her or any person related to her to meet such demand.'
-      },
-      {
-        id: 'rte-act',
-        title: 'Right of Children to Free and Compulsory Education',
-        act: 'Right to Education Act (RTE)',
-        sections: ['Section 3', 'Section 8', 'Section 12'],
-        keywords: ['education', 'school', 'children', 'free education'],
-        summary: 'The Act makes education a fundamental right of every child between the ages of 6 and 14 and specifies minimum norms in elementary schools.',
-        fullText: 'Every child of the age of six to fourteen years shall have a right to free and compulsory education in a neighbourhood school till completion of elementary education. No child shall be liable to pay any kind of fee or charges or expenses which may prevent him or her from pursuing and completing elementary education. The appropriate Government and local authority shall establish, within such area or limits of neighbourhood, as may be prescribed, a school, where it is not so established, within a period of three years from the commencement of this Act.'
-      }
-    ];
+  // Settings state
+  const [settings, setSettings] = useState<SettingsConfig>({
+    fuzzySearch: true,
+    keywordHighlighting: true,
+    searchSuggestions: true,
+    adminApproval: false,
+    auditLog: true
+  });
 
-    setLaws(initialLaws);
-    setStats({
-      totalLaws: initialLaws.length,
-      totalSearches: 1245,
-      popularLaws: [
-        {id: 'ipc-498a', title: 'IPC Section 498A', searches: 342},
-        {id: 'rte-act', title: 'Right to Education Act', searches: 278},
-      ],
-      recentEdits: [
-        {lawId: 'ipc-498a', title: 'IPC Section 498A', editedAt: '2023-05-15'},
-        {lawId: 'rte-act', title: 'Right to Education Act', editedAt: '2023-05-10'}
-      ]
+  const [originalSettings, setOriginalSettings] = useState<SettingsConfig>({
+    fuzzySearch: true,
+    keywordHighlighting: true,
+    searchSuggestions: true,
+    adminApproval: false,
+    auditLog: true
+  });
+
+  const [lastBackupDate, setLastBackupDate] = useState('2023-05-14 14:30');
+  const [showBackupStatus, setShowBackupStatus] = useState(false);
+  const [showRestoreStatus, setShowRestoreStatus] = useState(false);
+  const [showSettingsSaved, setShowSettingsSaved] = useState(false);
+
+  // Calculate analytics from laws data
+  const calculateAnalytics = (lawsData: Law[]): AnalyticsData => {
+    if (!lawsData.length) {
+      return {
+        totalLaws: 0,
+        totalKeywords: 0,
+        totalActs: 0,
+        averageKeywordsPerLaw: 0,
+        mostCommonKeywords: [],
+        actDistribution: [],
+        recentLaws: [],
+        lawsWithMostSections: []
+      };
+    }
+
+    // Total laws
+    const totalLaws = lawsData.length;
+
+    // All unique keywords
+    const allKeywords = lawsData.flatMap(law => law.keywords);
+    const uniqueKeywords = [...new Set(allKeywords)];
+    const totalKeywords = uniqueKeywords.length;
+
+    // All unique acts
+    const allActs = lawsData.map(law => law.act);
+    const uniqueActs = [...new Set(allActs)];
+    const totalActs = uniqueActs.length;
+
+    // Average keywords per law
+    const averageKeywordsPerLaw = Math.round(
+      (lawsData.reduce((sum, law) => sum + law.keywords.length, 0) / totalLaws) * 10
+    ) / 10;
+
+    // Most common keywords
+    const keywordCount: { [key: string]: number } = {};
+    allKeywords.forEach(keyword => {
+      keywordCount[keyword] = (keywordCount[keyword] || 0) + 1;
     });
+    const mostCommonKeywords = Object.entries(keywordCount)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([keyword, count]) => ({ keyword, count }));
+
+    // Act distribution
+    const actCount: { [key: string]: number } = {};
+    allActs.forEach(act => {
+      actCount[act] = (actCount[act] || 0) + 1;
+    });
+    const actDistribution = Object.entries(actCount)
+      .sort(([, a], [, b]) => b - a)
+      .map(([act, count]) => ({ act, count }));
+
+    // Recent laws (sort by createdAt or updatedAt, fallback to _id)
+    const recentLaws = [...lawsData]
+      .sort((a, b) => {
+        const dateA = new Date(a.createdAt || a.updatedAt || '1970-01-01').getTime();
+        const dateB = new Date(b.createdAt || b.updatedAt || '1970-01-01').getTime();
+        return dateB - dateA;
+      })
+      .slice(0, 5)
+      .map(law => ({
+        id: law._id,
+        title: law.title,
+        createdAt: law.createdAt || law.updatedAt || 'Unknown'
+      }));
+
+    // Laws with most sections
+    const lawsWithMostSections = [...lawsData]
+      .sort((a, b) => b.sections.length - a.sections.length)
+      .slice(0, 5)
+      .map(law => ({
+        id: law._id,
+        title: law.title,
+        sectionCount: law.sections.length
+      }));
+
+    return {
+      totalLaws,
+      totalKeywords,
+      totalActs,
+      averageKeywordsPerLaw,
+      mostCommonKeywords,
+      actDistribution,
+      recentLaws,
+      lawsWithMostSections
+    };
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        console.log('Fetching data from API...'); // Debug log
+        
+        // Fetch laws
+        const lawRes = await axios.get('http://localhost:5000/api/find');
+        console.log('Laws fetched:', lawRes.data); // Debug log
+        
+        // Fetch settings
+        const settingsRes = await axios.get('http://localhost:5000/api/find/set');
+        console.log('Settings fetched:', settingsRes.data); // Debug log
+
+        setLaws(lawRes.data);
+        setSettings(settingsRes.data);
+        setOriginalSettings(settingsRes.data);
+
+        // Calculate analytics from the fetched laws
+        const analyticsData = calculateAnalytics(lawRes.data);
+        setAnalytics(analyticsData);
+        
+        console.log('Data fetching completed successfully'); // Debug log
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        
+        // More detailed error logging
+        if (error.response) {
+          console.error('Response error:', error.response.status, error.response.data);
+        } else if (error.request) {
+          console.error('Request error:', error.request);
+        } else {
+          console.error('Setup error:', error.message);
+        }
+      }
+    };
+
+    fetchData();
   }, []);
+
+  // Recalculate analytics when laws change
+  useEffect(() => {
+    const analyticsData = calculateAnalytics(laws);
+    setAnalytics(analyticsData);
+  }, [laws]);
 
   // Search functionality
   useEffect(() => {
@@ -131,22 +278,17 @@ const AdminLawFinder = () => {
     setSelectedLaw(law);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editLaw) return;
-
-    setLaws(laws.map(law => law.id === editLaw.id ? editLaw : law));
-    setIsEditing(false);
-    setEditLaw(null);
-    setSelectedLaw(editLaw);
-
-    // Update stats
-    setStats(prev => ({
-      ...prev,
-      recentEdits: [
-        {lawId: editLaw.id, title: editLaw.title, editedAt: new Date().toISOString().split('T')[0]},
-        ...prev.recentEdits.slice(0, 4)
-      ]
-    }));
+    try {
+      const res = await axios.put(`http://localhost:5000/api/find/${editLaw._id}`, editLaw);
+      setLaws(laws.map(l => l._id === editLaw._id ? res.data : l));
+      setSelectedLaw(res.data);
+      setEditLaw(null);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error updating law:', error);
+    }
   };
 
   const handleCancelEdit = () => {
@@ -154,11 +296,10 @@ const AdminLawFinder = () => {
     setEditLaw(null);
   };
 
-  const handleAddNewLaw = () => {
+  const handleAddNewLaw = async () => {
     if (!newLaw.title || !newLaw.act || !newLaw.summary || !newLaw.fullText) return;
 
-    const lawToAdd: Law = {
-      id: `law-${Date.now()}`,
+    const lawToAdd = {
       title: newLaw.title || '',
       act: newLaw.act || '',
       sections: newLaw.sections || [],
@@ -167,37 +308,117 @@ const AdminLawFinder = () => {
       fullText: newLaw.fullText || ''
     };
 
-    setLaws([...laws, lawToAdd]);
-    setIsAddingNew(false);
-    setNewLaw({
-      title: '',
-      act: '',
-      sections: [],
-      keywords: [],
-      summary: '',
-      fullText: ''
-    });
+    try {
+      const res = await axios.post('http://localhost:5000/api/find', lawToAdd);
+      setLaws([...laws, res.data]);
+      setIsAddingNew(false);
+      setNewLaw({ title: '', act: '', sections: [], keywords: [], summary: '', fullText: '' });
+    } catch (error) {
+      console.error('Error adding law:', error);
+    }
+  };
 
-    // Update stats
-    setStats(prev => ({
+  const handleDeleteLaw = async (id: string) => {
+    try {
+      await axios.delete(`http://localhost:5000/api/find/${id}`);
+      setLaws(laws.filter(l => l._id !== id));
+      setSelectedLaw(null);
+    } catch (error) {
+      console.error('Error deleting law:', error);
+    }
+  };
+
+  // Settings functions
+  const handleSettingChange = (setting: keyof SettingsConfig, value: boolean) => {
+    setSettings(prev => ({
       ...prev,
-      totalLaws: prev.totalLaws + 1,
-      recentEdits: [
-        {lawId: lawToAdd.id, title: lawToAdd.title, editedAt: new Date().toISOString().split('T')[0]},
-        ...prev.recentEdits.slice(0, 4)
-      ]
+      [setting]: value
     }));
   };
 
-  const handleDeleteLaw = (id: string) => {
-    setLaws(laws.filter(law => law.id !== id));
-    if (selectedLaw?.id === id) {
-      setSelectedLaw(null);
+  const saveSettings = async () => {
+    try {
+      console.log('Saving settings:', settings); // Debug log
+      await axios.put('http://localhost:5000/api/find/set', settings); // Ensure this is PUT
+      setOriginalSettings(settings);
+      setShowSettingsSaved(true);
+      setTimeout(() => setShowSettingsSaved(false), 3000);
+      console.log('Settings saved successfully'); // Debug log
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      if (error.response) {
+        console.error('Response error:', error.response.status, error.response.data);
+      }
     }
-    setStats(prev => ({
-      ...prev,
-      totalLaws: prev.totalLaws - 1
-    }));
+  };
+
+  const hasSettingsChanged = () => {
+    return JSON.stringify(settings) !== JSON.stringify(originalSettings);
+  };
+
+  const createBackup = () => {
+    // Create backup data
+    const backupData = {
+      laws,
+      settings,
+      analytics,
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    };
+
+    // Convert to JSON and create downloadable file
+    const dataStr = JSON.stringify(backupData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    
+    // Create download link
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `lawfinder-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    // Update last backup date
+    const now = new Date().toLocaleString();
+    setLastBackupDate(now);
+    setShowBackupStatus(true);
+    setTimeout(() => setShowBackupStatus(false), 3000);
+  };
+
+  const restoreBackup = () => {
+    // Create file input for backup restore
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const backupData = JSON.parse(event.target?.result as string);
+          
+          // Validate backup data structure
+          if (backupData.laws && backupData.settings) {
+            setLaws(backupData.laws);
+            setSettings(backupData.settings);
+            setOriginalSettings(backupData.settings);
+            
+            setShowRestoreStatus(true);
+            setTimeout(() => setShowRestoreStatus(false), 3000);
+          } else {
+            alert('Invalid backup file format');
+          }
+        } catch (error) {
+          alert('Error reading backup file');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
   };
 
   const addSection = () => {
@@ -270,6 +491,43 @@ const AdminLawFinder = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Status notifications */}
+      <AnimatePresence>
+        {showSettingsSaved && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-4 right-4 z-50 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2"
+          >
+            <CheckCircle className="w-5 h-5" />
+            Settings saved successfully!
+          </motion.div>
+        )}
+        {showBackupStatus && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-4 right-4 z-50 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2"
+          >
+            <Download className="w-5 h-5" />
+            Backup created successfully!
+          </motion.div>
+        )}
+        {showRestoreStatus && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-4 right-4 z-50 bg-purple-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2"
+          >
+            <Upload className="w-5 h-5" />
+            Backup restored successfully!
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
@@ -322,7 +580,7 @@ const AdminLawFinder = () => {
                   <input
                     type="text"
                     className="block w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Search laws..."
+                    placeholder="Search laws by title, act, keywords, or summary..."
                     value={searchQuery}
                     onChange={(e) => handleSearch(e.target.value)}
                   />
@@ -336,6 +594,71 @@ const AdminLawFinder = () => {
                   )}
                 </div>
               </div>
+
+              {/* All Laws Display (when no search) */}
+              {!searchQuery && laws.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold text-gray-800">All Laws ({laws.length})</h3>
+                  
+                  {laws.map((law) => (
+                    <motion.div
+                      key={law._id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`bg-white rounded-xl shadow-md overflow-hidden border ${
+                        selectedLaw?._id === law._id ? 'border-blue-500' : 'border-gray-200'
+                      }`}
+                    >
+                      <div className="p-6">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-800 mb-1">{law.title}</h3>
+                            <p className="text-sm text-blue-600 font-medium mb-2">{law.act}</p>
+                            <p className="text-gray-600 text-sm mb-3">{law.summary}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleEdit(law)}
+                              className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full"
+                            >
+                              <Edit className="h-5 w-5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLaw(law._id)}
+                              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full"
+                            >
+                              <Trash2 className="h-5 w-5" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {law.keywords.map((keyword, idx) => (
+                            <span 
+                              key={idx} 
+                              className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs"
+                            >
+                              {keyword}
+                            </span>
+                          ))}
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                          <button
+                            onClick={() => setSelectedLaw(law)}
+                            className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                          >
+                            View Full Text
+                          </button>
+                          <div className="text-xs text-gray-500">
+                            {law.sections.length} {law.sections.length === 1 ? 'section' : 'sections'}
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
 
               {/* Add New Law Form */}
               {isAddingNew && (
@@ -462,22 +785,24 @@ const AdminLawFinder = () => {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                         value={newLaw.fullText}
                         onChange={(e) => setNewLaw({...newLaw, fullText: e.target.value})}
+                        placeholder="Enter the complete text of the law..."
                       />
                     </div>
 
-                    <div className="flex justify-end gap-2 pt-4">
-                      <button
-                        onClick={() => setIsAddingNew(false)}
-                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                      >
-                        Cancel
-                      </button>
+                    <div className="flex gap-3 pt-4">
                       <button
                         onClick={handleAddNewLaw}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+                        disabled={!newLaw.title || !newLaw.act || !newLaw.summary || !newLaw.fullText}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                       >
                         <Save className="h-4 w-4" />
                         Save Law
+                      </button>
+                      <button
+                        onClick={() => setIsAddingNew(false)}
+                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                      >
+                        Cancel
                       </button>
                     </div>
                   </div>
@@ -485,236 +810,101 @@ const AdminLawFinder = () => {
               )}
 
               {/* Search Results */}
-              {searchQuery && searchResults.length === 0 ? (
-                <div className="bg-white p-8 rounded-xl shadow-md text-center">
-                  <BookOpen className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No laws found</h3>
-                  <p className="text-gray-500">
-                    Try different keywords or add a new law
-                  </p>
-                </div>
-              ) : null}
-
-              {searchResults.length > 0 && (
+              {searchQuery && (
                 <div className="space-y-4">
-                  <h3 className="text-xl font-bold text-gray-800">
-                    {searchResults.length} {searchResults.length === 1 ? 'Result' : 'Results'} Found
-                  </h3>
-                  
-                  <AnimatePresence>
-                    {searchResults.map((law) => (
-                      <motion.div
-                        key={law.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.3 }}
-                        className={`bg-white rounded-xl shadow-md overflow-hidden border ${
-                          selectedLaw?.id === law.id ? 'border-blue-500' : 'border-gray-200'
-                        }`}
-                      >
-                        <div className="p-6">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h3 className="text-lg font-bold text-gray-800 mb-1">{law.title}</h3>
-                              <p className="text-sm text-blue-600 font-medium mb-2">{law.act}</p>
-                              <p className="text-gray-600 text-sm mb-3">{law.summary}</p>
+                  {searchResults.length > 0 ? (
+                    <>
+                      <h3 className="text-xl font-bold text-gray-800">
+                        Search Results ({searchResults.length})
+                      </h3>
+                      
+                      {searchResults.map((law) => (
+                        <motion.div
+                          key={law._id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={`bg-white rounded-xl shadow-md overflow-hidden border ${
+                            selectedLaw?._id === law._id ? 'border-blue-500' : 'border-gray-200'
+                          }`}
+                        >
+                          <div className="p-6">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="text-lg font-bold text-gray-800 mb-1">{law.title}</h3>
+                                <p className="text-sm text-blue-600 font-medium mb-2">{law.act}</p>
+                                <p className="text-gray-600 text-sm mb-3">{law.summary}</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleEdit(law)}
+                                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full"
+                                >
+                                  <Edit className="h-5 w-5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteLaw(law._id)}
+                                  className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full"
+                                >
+                                  <Trash2 className="h-5 w-5" />
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex gap-2">
+                            
+                            <div className="flex flex-wrap gap-2 mb-4">
+                              {law.keywords.map((keyword, idx) => (
+                                <span 
+                                  key={idx} 
+                                  className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs"
+                                >
+                                  {keyword}
+                                </span>
+                              ))}
+                            </div>
+                            
+                            <div className="flex justify-between items-center">
                               <button
-                                onClick={() => handleEdit(law)}
-                                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full"
+                                onClick={() => setSelectedLaw(law)}
+                                className="text-blue-600 hover:text-blue-800 font-medium text-sm"
                               >
-                                <Edit className="h-5 w-5" />
+                                View Full Text
                               </button>
-                              <button
-                                onClick={() => handleDeleteLaw(law.id)}
-                                className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full"
-                              >
-                                <Trash2 className="h-5 w-5" />
-                              </button>
+                              <div className="text-xs text-gray-500">
+                                {law.sections.length} {law.sections.length === 1 ? 'section' : 'sections'}
+                              </div>
                             </div>
                           </div>
-                          
-                          <div className="flex flex-wrap gap-2 mb-4">
-                            {law.keywords.map((keyword, idx) => (
-                              <span 
-                                key={idx} 
-                                className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs"
-                              >
-                                {keyword}
-                              </span>
-                            ))}
-                          </div>
-                          
-                          <div className="flex justify-between items-center">
-                            <button
-                              onClick={() => setSelectedLaw(law)}
-                              className="text-blue-600 hover:text-blue-800 font-medium text-sm"
-                            >
-                              View Full Text
-                            </button>
-                            <div className="text-xs text-gray-500">
-                              {law.sections.length} {law.sections.length === 1 ? 'section' : 'sections'}
-                            </div>
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
+                        </motion.div>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="bg-white p-8 rounded-xl shadow-sm border text-center">
+                      <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                        <Search className="w-8 h-8 text-gray-400" />
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">No laws found</h3>
+                      <p className="text-gray-500">
+                        No laws match your search query "{searchQuery}". Try different keywords.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-            
-            {/* Right Column - Law Details or Edit Form */}
+
+            {/* Right Column - Law Details */}
             <div className="lg:col-span-1">
-              {isEditing && editLaw ? (
-                <div className="bg-white rounded-xl shadow-md overflow-hidden border border-blue-200 sticky top-4">
+              {selectedLaw && (
+                <motion.div
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="bg-white rounded-xl shadow-sm border sticky top-4"
+                >
                   <div className="p-6">
                     <div className="flex justify-between items-start mb-4">
-                      <h3 className="text-lg font-bold text-gray-800">Edit Law</h3>
-                      <button
-                        onClick={handleCancelEdit}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        <X className="h-5 w-5" />
-                      </button>
-                    </div>
-                    
-                    <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                        <input
-                          type="text"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                          value={editLaw.title}
-                          onChange={(e) => setEditLaw({...editLaw, title: e.target.value})}
-                        />
+                        <h3 className="text-lg font-bold text-gray-800">{selectedLaw.title}</h3>
+                        <p className="text-sm text-blue-600 font-medium">{selectedLaw.act}</p>
                       </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Act</label>
-                        <input
-                          type="text"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                          value={editLaw.act}
-                          onChange={(e) => setEditLaw({...editLaw, act: e.target.value})}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Sections</label>
-                        <div className="flex gap-2 mb-2">
-                          <input
-                            type="text"
-                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                            value={newSection}
-                            onChange={(e) => setNewSection(e.target.value)}
-                            placeholder="Add section (e.g. Section 498A)"
-                          />
-                          <button
-                            onClick={addSection}
-                            className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                          >
-                            Add
-                          </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {editLaw.sections.map((section, idx) => (
-                            <span 
-                              key={idx} 
-                              className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs"
-                            >
-                              {section}
-                              <button 
-                                onClick={() => removeSection(section)}
-                                className="ml-1 text-gray-500 hover:text-red-500"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Keywords</label>
-                        <div className="flex gap-2 mb-2">
-                          <input
-                            type="text"
-                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                            value={newKeyword}
-                            onChange={(e) => setNewKeyword(e.target.value)}
-                            placeholder="Add keyword"
-                          />
-                          <button
-                            onClick={addKeyword}
-                            className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                          >
-                            Add
-                          </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {editLaw.keywords.map((keyword, idx) => (
-                            <span 
-                              key={idx} 
-                              className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs"
-                            >
-                              {keyword}
-                              <button 
-                                onClick={() => removeKeyword(keyword)}
-                                className="ml-1 text-gray-500 hover:text-red-500"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Summary</label>
-                        <textarea
-                          rows={3}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                          value={editLaw.summary}
-                          onChange={(e) => setEditLaw({...editLaw, summary: e.target.value})}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Full Text</label>
-                        <textarea
-                          rows={6}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                          value={editLaw.fullText}
-                          onChange={(e) => setEditLaw({...editLaw, fullText: e.target.value})}
-                        />
-                      </div>
-
-                      <div className="flex justify-end gap-2 pt-4">
-                        <button
-                          onClick={handleCancelEdit}
-                          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleSaveEdit}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
-                        >
-                          <Save className="h-4 w-4" />
-                          Save Changes
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : selectedLaw ? (
-                <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200 sticky top-4">
-                  <div className="p-6">
-                    <div className="flex justify-between items-start mb-4">
-                      <h3 className="text-lg font-bold text-gray-800">{selectedLaw.title}</h3>
                       <button
                         onClick={() => setSelectedLaw(null)}
                         className="text-gray-400 hover:text-gray-600"
@@ -722,125 +912,196 @@ const AdminLawFinder = () => {
                         <X className="h-5 w-5" />
                       </button>
                     </div>
-                    
-                    <div className="mb-4">
-                      <span className="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                        {selectedLaw.act}
-                      </span>
-                    </div>
-                    
-                    <div className="mb-6">
-                      <h4 className="font-medium text-gray-700 mb-2">Sections:</h4>
-                      <ul className="space-y-2">
-                        {selectedLaw.sections.map((section, idx) => (
-                          <li key={idx} className="text-sm text-gray-600">
-                            • {section}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
 
-                    <div className="mb-6">
-                      <h4 className="font-medium text-gray-700 mb-2">Keywords:</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedLaw.keywords.map((keyword, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
-                            {keyword}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="prose prose-sm max-w-none text-gray-700 mb-6">
-                      <h4 className="font-medium text-gray-700 mb-2">Summary:</h4>
-                      <p>{selectedLaw.summary}</p>
-                    </div>
-                    
-                    <div className="prose prose-sm max-w-none text-gray-700 mb-6">
-                      <h4 className="font-medium text-gray-700 mb-2">Full Text:</h4>
-                      <p className="whitespace-pre-line">{selectedLaw.fullText}</p>
-                    </div>
-                    
-                    <div className="flex flex-wrap gap-3">
-                      <button 
-                        onClick={() => handleEdit(selectedLaw)}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                      >
-                        <Edit className="h-4 w-4" />
-                        Edit Law
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteLaw(selectedLaw.id)}
-                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200 sticky top-4">
-                  <div className="p-6">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4">Quick Stats</h3>
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                          <Scale className="w-5 h-5 text-blue-600" />
-                        </div>
+                    {/* Edit Form */}
+                    {isEditing && editLaw ? (
+                      <div className="space-y-4">
                         <div>
-                          <div className="font-medium text-gray-900">{stats.totalLaws} Laws</div>
-                          <div className="text-sm text-gray-600">In database</div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                          <input
+                            type="text"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                            value={editLaw.title}
+                            onChange={(e) => setEditLaw({...editLaw, title: e.target.value})}
+                          />
                         </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-green-100 rounded-lg">
-                          <Search className="w-5 h-5 text-green-600" />
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900">{stats.totalSearches} Searches</div>
-                          <div className="text-sm text-gray-600">Last 30 days</div>
-                        </div>
-                      </div>
-                    </div>
 
-                    <h3 className="text-lg font-bold text-gray-800 mt-6 mb-4">Popular Laws</h3>
-                    <ul className="space-y-3">
-                      {stats.popularLaws.map((law, index) => (
-                        <li key={index}>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Act</label>
+                          <input
+                            type="text"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                            value={editLaw.act}
+                            onChange={(e) => setEditLaw({...editLaw, act: e.target.value})}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Sections</label>
+                          <div className="flex gap-2 mb-2">
+                            <input
+                              type="text"
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                              value={newSection}
+                              onChange={(e) => setNewSection(e.target.value)}
+                              placeholder="Add section"
+                            />
+                            <button
+                              onClick={addSection}
+                              className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <div className="space-y-1">
+                            {editLaw.sections.map((section, idx) => (
+                              <div 
+                                key={idx} 
+                                className="flex justify-between items-center px-2 py-1 bg-gray-50 rounded"
+                              >
+                                <span className="text-sm">{section}</span>
+                                <button 
+                                  onClick={() => removeSection(section)}
+                                  className="text-red-500 hover:text-red-700"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Keywords</label>
+                          <div className="flex gap-2 mb-2">
+                            <input
+                              type="text"
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                              value={newKeyword}
+                              onChange={(e) => setNewKeyword(e.target.value)}
+                              placeholder="Add keyword"
+                            />
+                            <button
+                              onClick={addKeyword}
+                              className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {editLaw.keywords.map((keyword, idx) => (
+                              <span 
+                                key={idx} 
+                                className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs"
+                              >
+                                {keyword}
+                                <button 
+                                  onClick={() => removeKeyword(keyword)}
+                                  className="ml-1 text-gray-500 hover:text-red-500"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Summary</label>
+                          <textarea
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                            value={editLaw.summary}
+                            onChange={(e) => setEditLaw({...editLaw, summary: e.target.value})}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Full Text</label>
+                          <textarea
+                            rows={6}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                            value={editLaw.fullText}
+                            onChange={(e) => setEditLaw({...editLaw, fullText: e.target.value})}
+                          />
+                        </div>
+
+                        <div className="flex gap-3 pt-4">
                           <button
-                            onClick={() => {
-                              const foundLaw = laws.find(l => l.id === law.id);
-                              if (foundLaw) setSelectedLaw(foundLaw);
-                            }}
-                            className="text-left text-blue-600 hover:text-blue-800 text-sm"
+                            onClick={handleSaveEdit}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                           >
-                            {law.title}
+                            <Save className="h-4 w-4" />
+                            Save
                           </button>
-                          <p className="text-xs text-gray-500">{law.searches} searches</p>
-                        </li>
-                      ))}
-                    </ul>
-                    
-                    <h3 className="text-lg font-bold text-gray-800 mt-6 mb-4">Recent Edits</h3>
-                    <ul className="space-y-3">
-                      {stats.recentEdits.map((edit, index) => (
-                        <li key={index}>
                           <button
-                            onClick={() => {
-                              const foundLaw = laws.find(l => l.id === edit.lawId);
-                              if (foundLaw) setSelectedLaw(foundLaw);
-                            }}
-                            className="text-left text-blue-600 hover:text-blue-800 text-sm"
+                            onClick={handleCancelEdit}
+                            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
                           >
-                            {edit.title}
+                            Cancel
                           </button>
-                          <p className="text-xs text-gray-500">{edit.editedAt}</p>
-                        </li>
-                      ))}
-                    </ul>
+                        </div>
+                      </div>
+                    ) : (
+                      /* View Mode */
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="font-medium text-gray-900 mb-2">Summary</h4>
+                          <p className="text-gray-700 text-sm">{selectedLaw.summary}</p>
+                        </div>
+
+                        <div>
+                          <h4 className="font-medium text-gray-900 mb-2">Sections ({selectedLaw.sections.length})</h4>
+                          <div className="space-y-1">
+                            {selectedLaw.sections.map((section, idx) => (
+                              <div key={idx} className="px-3 py-2 bg-gray-50 rounded text-sm">
+                                {section}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="font-medium text-gray-900 mb-2">Keywords ({selectedLaw.keywords.length})</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedLaw.keywords.map((keyword, idx) => (
+                              <span 
+                                key={idx} 
+                                className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs"
+                              >
+                                {keyword}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="font-medium text-gray-900 mb-2">Full Text</h4>
+                          <div className="max-h-64 overflow-y-auto p-3 bg-gray-50 rounded text-sm">
+                            <pre className="whitespace-pre-wrap font-sans">{selectedLaw.fullText}</pre>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 pt-4">
+                          <button
+                            onClick={() => handleEdit(selectedLaw)}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                          >
+                            <Edit className="h-4 w-4" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteLaw(selectedLaw._id)}
+                            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
+                </motion.div>
               )}
             </div>
           </div>
@@ -848,228 +1109,187 @@ const AdminLawFinder = () => {
 
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="space-y-6">
+            {/* Overview Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white p-6 rounded-xl shadow-sm border">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-2 bg-blue-100 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Total Laws</p>
+                    <p className="text-2xl font-bold text-gray-900">{analytics.totalLaws}</p>
+                  </div>
+                  <div className="p-3 bg-blue-100 rounded-full">
                     <Scale className="w-6 h-6 text-blue-600" />
                   </div>
-                  <span className="text-sm text-gray-500">Total</span>
                 </div>
-                <div className="text-2xl font-bold text-gray-900 mb-1">{stats.totalLaws}</div>
-                <div className="text-gray-600">Laws in Database</div>
               </div>
 
               <div className="bg-white p-6 rounded-xl shadow-sm border">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-2 bg-green-100 rounded-lg">
-                    <Search className="w-6 h-6 text-green-600" />
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Total Keywords</p>
+                    <p className="text-2xl font-bold text-gray-900">{analytics.totalKeywords}</p>
                   </div>
-                  <span className="text-sm text-gray-500">Last 30 days</span>
+                  <div className="p-3 bg-green-100 rounded-full">
+                    <Tag className="w-6 h-6 text-green-600" />
+                  </div>
                 </div>
-                <div className="text-2xl font-bold text-gray-900 mb-1">{stats.totalSearches.toLocaleString()}</div>
-                <div className="text-gray-600">Search Queries</div>
               </div>
 
               <div className="bg-white p-6 rounded-xl shadow-sm border">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <Users className="w-6 h-6 text-purple-600" />
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Total Acts</p>
+                    <p className="text-2xl font-bold text-gray-900">{analytics.totalActs}</p>
                   </div>
-                  <span className="text-sm text-gray-500">Active</span>
+                  <div className="p-3 bg-purple-100 rounded-full">
+                    <BookOpen className="w-6 h-6 text-purple-600" />
+                  </div>
                 </div>
-                <div className="text-2xl font-bold text-gray-900 mb-1">1,245</div>
-                <div className="text-gray-600">Monthly Users</div>
               </div>
-            </div>
 
-            <div className="bg-white rounded-xl shadow-sm border">
-              <div className="p-6 border-b">
-                <h3 className="text-lg font-semibold text-gray-900">Search Analytics</h3>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-xl shadow-sm border">
+                <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="font-medium text-gray-700 mb-3">Most Searched Laws</h4>
-                    <div className="space-y-3">
-                      {stats.popularLaws.map((law, index) => (
-                        <div key={index} className="flex items-center gap-3">
-                          <div className="w-40 text-sm text-gray-600 truncate">{law.title}</div>
-                          <div className="flex-1 bg-gray-200 rounded-full h-2">
-                            <div 
-                              className="bg-blue-500 h-2 rounded-full"
-                              style={{ width: `${(law.searches / stats.totalSearches) * 100}%` }}
-                            ></div>
-                          </div>
-                          <div className="text-sm font-medium text-gray-700">{law.searches}</div>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-sm text-gray-600">Avg Keywords/Law</p>
+                    <p className="text-2xl font-bold text-gray-900">{analytics.averageKeywordsPerLaw}</p>
                   </div>
-                  <div>
-                    <h4 className="font-medium text-gray-700 mb-3">Search Trends</h4>
-                    <div className="text-center py-8 text-gray-500">
-                      <BarChart2 className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p>Search trends chart would be displayed here</p>
-                    </div>
+                  <div className="p-3 bg-orange-100 rounded-full">
+                    <TrendingUp className="w-6 h-6 text-orange-600" />
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border">
-              <div className="p-6 border-b">
-                <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-              </div>
-              <div className="p-6">
-                <div className="space-y-4">
-                  {[
-                    { action: 'New law added', user: 'Admin', time: '2 minutes ago', type: 'add' },
-                    { action: 'Law updated', user: 'Admin', time: '15 minutes ago', type: 'edit' },
-                    { action: 'Popular search', query: 'property rights', time: '30 minutes ago', type: 'search' },
-                    { action: 'Law deleted', user: 'Admin', time: '1 hour ago', type: 'delete' },
-                    { action: 'System backup', user: 'Automated', time: '2 hours ago', type: 'system' }
-                  ].map((activity, index) => (
-                    <div key={index} className="flex items-center justify-between py-3 border-b last:border-b-0">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${
-                          activity.type === 'add' ? 'bg-green-100' :
-                          activity.type === 'edit' ? 'bg-blue-100' :
-                          activity.type === 'delete' ? 'bg-red-100' :
-                          activity.type === 'search' ? 'bg-purple-100' : 'bg-gray-100'
-                        }`}>
-                          {activity.type === 'add' && <Plus className="w-4 h-4 text-green-600" />}
-                          {activity.type === 'edit' && <Edit className="w-4 h-4 text-blue-600" />}
-                          {activity.type === 'delete' && <Trash2 className="w-4 h-4 text-red-600" />}
-                          {activity.type === 'search' && <Search className="w-4 h-4 text-purple-600" />}
-                          {activity.type === 'system' && <Settings className="w-4 h-4 text-gray-600" />}
+            {/* Charts and Lists */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Most Common Keywords */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Most Common Keywords</h3>
+                <div className="space-y-3">
+                  {analytics.mostCommonKeywords.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center">
+                      <span className="text-gray-700">{item.keyword}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-20 bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-blue-600 h-2 rounded-full" 
+                            style={{ 
+                              width: `${(item.count / Math.max(...analytics.mostCommonKeywords.map(k => k.count))) * 100}%` 
+                            }}
+                          />
                         </div>
-                        <div>
-                          <div className="font-medium text-gray-900">{activity.action}</div>
-                          {activity.query ? (
-                            <div className="text-sm text-gray-600">"{activity.query}"</div>
-                          ) : (
-                            <div className="text-sm text-gray-600">by {activity.user}</div>
-                          )}
-                        </div>
+                        <span className="text-sm text-gray-600 w-8">{item.count}</span>
                       </div>
-                      <div className="text-sm text-gray-500">{activity.time}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Act Distribution */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Act Distribution</h3>
+                <div className="space-y-3">
+                  {analytics.actDistribution.slice(0, 10).map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center">
+                      <span className="text-gray-700 truncate flex-1">{item.act}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-16 bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-green-600 h-2 rounded-full" 
+                            style={{ 
+                              width: `${(item.count / Math.max(...analytics.actDistribution.map(a => a.count))) * 100}%` 
+                            }}
+                          />
+                        </div>
+                        <span className="text-sm text-gray-600 w-8">{item.count}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Recent Laws */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Recent Laws</h3>
+                <div className="space-y-3">
+                  {analytics.recentLaws.map((law, idx) => (
+                    <div key={idx} className="flex items-start gap-3 p-3 hover:bg-gray-50 rounded-lg">
+                      <div className="p-2 bg-blue-100 rounded-full">
+                        <Calendar className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-medium text-gray-800 text-sm">{law.title}</h4>
+                        <p className="text-xs text-gray-500">{law.createdAt}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Laws with Most Sections */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">Laws with Most Sections</h3>
+                <div className="space-y-3">
+                  {analytics.lawsWithMostSections.map((law, idx) => (
+                    <div key={idx} className="flex items-start gap-3 p-3 hover:bg-gray-50 rounded-lg">
+                      <div className="p-2 bg-purple-100 rounded-full">
+                        <FileText className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-medium text-gray-800 text-sm">{law.title}</h4>
+                        <p className="text-xs text-gray-500">{law.sectionCount} sections</p>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
 
         {/* Settings Tab */}
         {activeTab === 'settings' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <div className="bg-white p-6 rounded-xl shadow-sm border">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">System Settings</h3>
+          <div className="max-w-4xl space-y-6">
+            
               
-              <div className="space-y-6">
-                <div>
-                  <h4 className="font-medium text-gray-700 mb-3">Search Settings</h4>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">Fuzzy Search</div>
-                        <p className="text-sm text-gray-600">Allow approximate matches in search results</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
 
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">Keyword Highlighting</div>
-                        <p className="text-sm text-gray-600">Highlight matching keywords in search results</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">Search Suggestions</div>
-                        <p className="text-sm text-gray-600">Show suggestions as user types</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
+            {/* Data Management */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">Data Management</h3>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-medium text-gray-900">Database Backup</h4>
+                    <p className="text-sm text-gray-600">Last backup: {lastBackupDate}</p>
                   </div>
-                </div>
-
-                <div>
-                  <h4 className="font-medium text-gray-700 mb-3">Security Settings</h4>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">Admin Approval for Edits</div>
-                        <p className="text-sm text-gray-600">Require approval for law modifications</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">Audit Log</div>
-                        <p className="text-sm text-gray-600">Record all changes to laws</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="font-medium text-gray-700 mb-3">Backup & Restore</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <button className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50">
-                      <Download className="w-5 h-5" />
-                      Create Backup
-                    </button>
-                    <button className="flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50">
-                      <Save className="w-5 h-5" />
-                      Restore Backup
-                    </button>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-2">Last backup: 2023-05-14 14:30</p>
-                </div>
-
-                <div className="pt-4 border-t border-gray-200">
-                  <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
-                    Reset All Settings
+                  <button
+                    onClick={createBackup}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                  >
+                    <Download className="h-4 w-4" />
+                    Create Backup
                   </button>
                 </div>
+                
+
+                
+
+                
               </div>
             </div>
-          </motion.div>
+
+            
+          </div>
         )}
       </div>
+
+      
+
+      
     </div>
   );
-};
+}
+
 
 export default AdminLawFinder;

@@ -1,48 +1,29 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Download, FileText, ChevronRight, Check, X } from 'lucide-react';
+import { Download, FileText, ChevronRight, Check, X, AlertCircle } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
-const documentTemplates = [
-  {
-    id: 'rent-agreement',
-    title: 'Rent Agreement',
-    description: 'Create a legally binding rental contract between landlord and tenant',
-    icon: <FileText className="w-6 h-6" />,
-    color: 'bg-blue-100 text-blue-600',
-  },
-  {
-    id: 'affidavit',
-    title: 'Affidavit',
-    description: 'Generate self-declaration, name change or income affidavits',
-    icon: <FileText className="w-6 h-6" />,
-    color: 'bg-purple-100 text-purple-600',
-  },
-  {
-    id: 'power-of-attorney',
-    title: 'Power of Attorney',
-    description: 'Create authorization documents for property or legal matters',
-    icon: <FileText className="w-6 h-6" />,
-    color: 'bg-green-100 text-green-600',
-  },
-  {
-    id: 'will',
-    title: 'Will Format',
-    description: 'Draft a basic will document for property inheritance',
-    icon: <FileText className="w-6 h-6" />,
-    color: 'bg-amber-100 text-amber-600',
-  },
-  {
-    id: 'sale-deed',
-    title: 'Property Sale Deed',
-    description: 'Generate basic property sale agreement documents',
-    icon: <FileText className="w-6 h-6" />,
-    color: 'bg-teal-100 text-teal-600',
-  },
-];
+interface DocumentTemplate {
+  id: string;
+  title: string;
+  description: string;
+  usageCount: number;
+  lastUpdated: string;
+  status: 'active' | 'inactive';
+  fields: number;
+}
+
+interface AppSettings {
+  pdfQuality: string;
+  pageSize: string;
+  includeWatermark: boolean;
+  requireLogin: boolean;
+  enablePreview: boolean;
+  maxDocumentsPerDay: number;
+}
 
 const DocumentGenerator = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
@@ -50,7 +31,111 @@ const DocumentGenerator = () => {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [generatedDoc, setGeneratedDoc] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplate[]>([]);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const docPreviewRef = useRef<HTMLDivElement>(null);
+
+  // API endpoints - adjust these to match your backend
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/docu';
+
+  // Fetch templates and settings from database
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch templates
+        const templatesResponse = await fetch(`${API_BASE_URL}/templates`);
+        if (!templatesResponse.ok) throw new Error('Failed to fetch templates');
+        const templates = await templatesResponse.json();
+        
+        // Filter only active templates
+        const activeTemplates = templates.filter((t: DocumentTemplate) => t.status === 'active');
+        setDocumentTemplates(activeTemplates);
+
+        // Fetch settings
+        const settingsResponse = await fetch(`${API_BASE_URL}/settings`);
+        if (!settingsResponse.ok) throw new Error('Failed to fetch settings');
+        const settings = await settingsResponse.json();
+        setAppSettings(settings);
+
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        // Fallback to static data if API fails
+        setDocumentTemplates([
+          {
+            id: 'rent-agreement',
+            title: 'Rent Agreement',
+            description: 'Create a legally binding rental contract between landlord and tenant',
+            usageCount: 0,
+            lastUpdated: '2024-01-15',
+            status: 'active',
+            fields: 8
+          },
+          {
+            id: 'affidavit',
+            title: 'Affidavit',
+            description: 'Generate self-declaration, name change or income affidavits',
+            usageCount: 0,
+            lastUpdated: '2024-01-15',
+            status: 'active',
+            fields: 6
+          }
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Get icon and color for template based on ID
+  const getTemplateStyle = (templateId: string) => {
+    const styles: Record<string, { icon: JSX.Element; color: string }> = {
+      'rent-agreement': {
+        icon: <FileText className="w-6 h-6" />,
+        color: 'bg-blue-100 text-blue-600'
+      },
+      'affidavit': {
+        icon: <FileText className="w-6 h-6" />,
+        color: 'bg-purple-100 text-purple-600'
+      },
+      'power-of-attorney': {
+        icon: <FileText className="w-6 h-6" />,
+        color: 'bg-green-100 text-green-600'
+      },
+      'will': {
+        icon: <FileText className="w-6 h-6" />,
+        color: 'bg-amber-100 text-amber-600'
+      },
+      'sale-deed': {
+        icon: <FileText className="w-6 h-6" />,
+        color: 'bg-teal-100 text-teal-600'
+      }
+    };
+    
+    return styles[templateId] || {
+      icon: <FileText className="w-6 h-6" />,
+      color: 'bg-gray-100 text-gray-600'
+    };
+  };
+
+  // Update template usage count in database
+  const updateTemplateUsage = async (templateId: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/templates/${templateId}/usage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+    } catch (err) {
+      console.error('Failed to update template usage:', err);
+    }
+  };
 
   const rentAgreementFields = [
     { id: 'landlordName', label: 'Landlord Full Name', type: 'text', required: true },
@@ -91,8 +176,13 @@ const DocumentGenerator = () => {
     });
   };
 
-  const generateDocument = () => {
+  const generateDocument = async () => {
     setIsGenerating(true);
+    
+    // Update template usage count
+    if (selectedTemplate) {
+      await updateTemplateUsage(selectedTemplate);
+    }
     
     // Simulate document generation
     setTimeout(() => {
@@ -107,12 +197,28 @@ const DocumentGenerator = () => {
     
     const canvas = await html2canvas(docPreviewRef.current);
     const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF();
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: appSettings?.pageSize || 'a4'
+    });
+    
     const imgProps = pdf.getImageProperties(imgData);
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
     
     pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+    
+    // Add watermark if enabled
+    if (appSettings?.includeWatermark) {
+      pdf.setTextColor(200, 200, 200);
+      pdf.setFontSize(50);
+      pdf.text('DRAFT', pdfWidth / 2, pdfHeight / 2, { 
+        angle: 45, 
+        align: 'center' 
+      });
+    }
+    
     pdf.save(`${selectedTemplate}-document.pdf`);
   };
 
@@ -124,41 +230,79 @@ const DocumentGenerator = () => {
   };
 
   const renderStep = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <span className="ml-3 text-lg">Loading templates...</span>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md text-center">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+            <h3 className="text-lg font-semibold text-red-800 mb-2">Connection Error</h3>
+            <p className="text-red-600 mb-4">{error}</p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     switch (currentStep) {
       case 0:
         return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {documentTemplates.map((template) => (
-              <motion.div
-                key={template.id}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.98 }}
-                className={`p-6 rounded-xl shadow-md cursor-pointer transition-all ${template.color}`}
-                onClick={() => {
-                  setSelectedTemplate(template.id);
-                  setCurrentStep(1);
-                }}
-              >
-                <div className="flex items-center gap-4 mb-4">
-                  <div className={`p-3 rounded-lg ${template.color.replace('text', 'bg').replace('600', '500/20')}`}>
-                    {template.icon}
-                  </div>
-                  <h3 className="text-xl font-bold">{template.title}</h3>
-                </div>
-                <p className="text-gray-700">{template.description}</p>
-                <div className="mt-4 flex items-center text-blue-600 font-medium">
-                  <span>Select</span>
-                  <ChevronRight className="ml-1 w-5 h-5" />
-                </div>
-              </motion.div>
-            ))}
+          <div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {documentTemplates.map((template) => {
+                const style = getTemplateStyle(template.id);
+                return (
+                  <motion.div
+                    key={template.id}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`p-6 rounded-xl shadow-md cursor-pointer transition-all ${style.color}`}
+                    onClick={() => {
+                      setSelectedTemplate(template.id);
+                      setCurrentStep(1);
+                    }}
+                  >
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className={`p-3 rounded-lg ${style.color.replace('text', 'bg').replace('600', '500/20')}`}>
+                        {style.icon}
+                      </div>
+                      <h3 className="text-xl font-bold">{template.title}</h3>
+                    </div>
+                    <p className="text-gray-700 mb-3">{template.description}</p>
+                    <div className="flex items-center justify-between text-sm text-gray-600 mb-4">
+                      <span>Used {template.usageCount} times</span>
+                      <span>Updated: {template.lastUpdated}</span>
+                    </div>
+                    <div className="flex items-center text-blue-600 font-medium">
+                      <span>Select</span>
+                      <ChevronRight className="ml-1 w-5 h-5" />
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
           </div>
         );
+        
       case 1:
+        const selectedTemplateData = documentTemplates.find(t => t.id === selectedTemplate);
         return (
           <div className="max-w-3xl mx-auto">
             <h3 className="text-2xl font-bold mb-6">
-              {documentTemplates.find(t => t.id === selectedTemplate)?.title} Details
+              {selectedTemplateData?.title} Details
             </h3>
             
             <div className="space-y-6">
@@ -242,6 +386,7 @@ const DocumentGenerator = () => {
             </div>
           </div>
         );
+        
       case 2:
         return (
           <div className="max-w-5xl mx-auto">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   BookOpen, 
@@ -14,20 +14,24 @@ import {
   Home,
   Briefcase,
   GraduationCap,
-  Globe
+  Globe,
+  Loader2
 } from 'lucide-react';
 
 interface Right {
-  id: string;
+  _id: string;
   title: string;
   description: string;
   category: string;
-  icon: React.ReactNode;
+  icon: string;
   details: string[];
+  status: 'active' | 'inactive';
+  lastUpdated: string;
+  views: number;
 }
 
 interface Scheme {
-  id: string;
+  _id: string;
   name: string;
   description: string;
   eligibility: string[];
@@ -35,6 +39,20 @@ interface Scheme {
   category: string;
   applyLink: string;
   status: 'active' | 'closed' | 'upcoming';
+  lastUpdated: string;
+  applications: number;
+}
+
+interface Resource {
+  _id: string;
+  title: string;
+  language: string;
+  size: string;
+  format: string;
+  downloads: number;
+  uploadDate: string;
+  status: 'active' | 'inactive';
+  fileUrl: string;
 }
 
 export default function LegalRightsSection() {
@@ -47,6 +65,13 @@ export default function LegalRightsSection() {
     income: ''
   });
 
+  // State for API data
+  const [rights, setRights] = useState<Right[]>([]);
+  const [schemes, setSchemes] = useState<Scheme[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const categories = [
     { id: 'all', name: 'All Rights', icon: <Globe className="w-4 h-4" /> },
     { id: 'fundamental', name: 'Fundamental Rights', icon: <Shield className="w-4 h-4" /> },
@@ -56,116 +81,152 @@ export default function LegalRightsSection() {
     { id: 'property', name: 'Property Rights', icon: <Home className="w-4 h-4" /> }
   ];
 
-  const rights: Right[] = [
-    {
-      id: '1',
-      title: 'Right to Equality',
-      description: 'Equal treatment before law and equal protection of laws',
-      category: 'fundamental',
-      icon: <Shield className="w-6 h-6" />,
-      details: [
-        'Equality before law (Article 14)',
-        'Prohibition of discrimination (Article 15)',
-        'Equality of opportunity (Article 16)',
-        'Abolition of untouchability (Article 17)'
-      ]
-    },
-    {
-      id: '2',
-      title: 'Right to Education',
-      description: 'Free and compulsory education for children aged 6-14 years',
-      category: 'education',
-      icon: <GraduationCap className="w-6 h-6" />,
-      details: [
-        'Free education up to elementary level',
-        'Right to quality education',
-        'Non-discrimination in schools',
-        'Infrastructure and teacher requirements'
-      ]
-    },
-    {
-      id: '3',
-      title: 'Right to Information',
-      description: 'Access to information from public authorities',
-      category: 'fundamental',
-      icon: <Eye className="w-6 h-6" />,
-      details: [
-        'Access to government information',
-        'RTI application process',
-        'Response within 30 days',
-        'Appeal process for denial'
-      ]
-    },
-    {
-      id: '4',
-      title: 'Right to Work',
-      description: 'Employment opportunities and fair wages',
-      category: 'employment',
-      icon: <Briefcase className="w-6 h-6" />,
-      details: [
-        'Right to work and livelihood',
-        'Fair wages and working conditions',
-        'Social security benefits',
-        'Protection against exploitation'
-      ]
-    }
-  ];
+  // Icon mapping function
+  const getIconComponent = (iconName: string) => {
+    const iconMap: { [key: string]: React.ReactNode } = {
+      'shield': <Shield className="w-6 h-6" />,
+      'graduation-cap': <GraduationCap className="w-6 h-6" />,
+      'eye': <Eye className="w-6 h-6" />,
+      'briefcase': <Briefcase className="w-6 h-6" />,
+      'users': <Users className="w-6 h-6" />,
+      'home': <Home className="w-6 h-6" />,
+      'heart': <Heart className="w-6 h-6" />,
+      'book-open': <BookOpen className="w-6 h-6" />
+    };
+    return iconMap[iconName] || <Shield className="w-6 h-6" />;
+  };
 
-  const schemes: Scheme[] = [
-    {
-      id: '1',
-      name: 'PM Awas Yojana',
-      description: 'Housing for All - providing affordable housing to urban and rural poor',
-      eligibility: ['Annual income below ₹18 lakh', 'First-time home buyer', 'Indian citizen'],
-      benefits: ['Subsidy up to ₹2.67 lakh', 'Lower interest rates', 'Extended loan tenure'],
-      category: 'housing',
-      applyLink: 'https://pmaymis.gov.in/',
-      status: 'active'
-    },
-    {
-      id: '2',
-      name: 'PM-KISAN',
-      description: 'Direct income support to farmers',
-      eligibility: ['Small and marginal farmers', 'Land holding up to 2 hectares', 'Valid land records'],
-      benefits: ['₹6,000 per year', 'Direct bank transfer', 'Three installments of ₹2,000'],
-      category: 'agriculture',
-      applyLink: 'https://pmkisan.gov.in/',
-      status: 'active'
-    },
-    {
-      id: '3',
-      name: 'Beti Bachao Beti Padhao',
-      description: 'Women empowerment and girl child education',
-      eligibility: ['Girl child', 'Indian resident', 'Age-specific criteria'],
-      benefits: ['Educational scholarships', 'Skill development', 'Employment opportunities'],
-      category: 'women',
-      applyLink: 'https://wcd.nic.in/bbbp-scheme',
-      status: 'active'
-    },
-    {
-      id: '4',
-      name: 'NREGA',
-      description: 'Guaranteed employment in rural areas',
-      eligibility: ['Rural household', 'Adult family members', 'Job card holder'],
-      benefits: ['100 days guaranteed work', 'Minimum wage payment', 'Social security'],
-      category: 'employment',
-      applyLink: 'https://nrega.nic.in/',
-      status: 'active'
+  // API functions
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const [rightsRes, schemesRes, resourcesRes] = await Promise.all([
+        fetch('http://localhost:5000/api/legalsec/rights'),
+        fetch('http://localhost:5000/api/legalsec/schemes'),
+        fetch('http://localhost:5000/api/legalsec/resources')
+      ]);
+
+      if (!rightsRes.ok || !schemesRes.ok || !resourcesRes.ok) {
+        throw new Error('Failed to fetch data');
+      }
+
+      const [rightsData, schemesData, resourcesData] = await Promise.all([
+        rightsRes.json(),
+        schemesRes.json(),
+        resourcesRes.json()
+      ]);
+
+      // Filter only active rights
+      setRights(rightsData.filter((right: Right) => right.status === 'active'));
+      setSchemes(schemesData);
+      setResources(resourcesData.filter((resource: Resource) => resource.status === 'active'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('Error fetching data:', err);
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
+
+  // Update view count for a right
+  const updateRightViews = async (rightId: string) => {
+    try {
+      const right = rights.find(r => r._id === rightId);
+      if (right) {
+        await fetch(`http://localhost:5000/api/legalsec/rights/${rightId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...right, views: right.views + 1 })
+        });
+        
+        // Update local state
+        setRights(prev => prev.map(r => 
+          r._id === rightId ? { ...r, views: r.views + 1 } : r
+        ));
+      }
+    } catch (err) {
+      console.error('Error updating views:', err);
+    }
+  };
+
+  // Download resource handler
+  const handleDownload = async (resourceId: string) => {
+    try {
+      const resource = resources.find(r => r._id === resourceId);
+      if (resource) {
+        // Update download count
+        await fetch(`http://localhost:5000/api/legalsec/resources/${resourceId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...resource, downloads: resource.downloads + 1 })
+        });
+
+        // Update local state
+        setResources(prev => prev.map(r => 
+          r._id === resourceId ? { ...r, downloads: r.downloads + 1 } : r
+        ));
+
+        // Trigger download (you might want to implement actual file download)
+        if (resource.fileUrl) {
+          window.open(resource.fileUrl, '_blank');
+        }
+      }
+    } catch (err) {
+      console.error('Error downloading resource:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const filteredRights = rights.filter(right => 
     selectedCategory === 'all' || right.category === selectedCategory
   );
 
+  const activeSchemes = schemes.filter(scheme => scheme.status === 'active');
+
   const checkEligibility = () => {
-    // Simple eligibility checker logic
+    // Enhanced eligibility checker logic based on filters
     const eligibleSchemes = schemes.filter(scheme => {
-      // This is a simplified version - in real implementation, you'd have more complex logic
-      return scheme.status === 'active';
+      if (scheme.status !== 'active') return false;
+      
+      // Add more sophisticated filtering logic here based on eligibilityFilters
+      // This is a simplified version
+      return true;
     });
+    
+    // You could show eligible schemes in a modal or separate section
+    console.log('Eligible schemes:', eligibleSchemes);
     return eligibleSchemes;
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading legal rights and schemes...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+        <p className="text-red-800 font-medium">Error loading data: {error}</p>
+        <button 
+          onClick={fetchData}
+          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-12">
@@ -184,6 +245,7 @@ export default function LegalRightsSection() {
         <div className="flex items-center gap-3 mb-6">
           <BookOpen className="w-8 h-8 text-blue-600" />
           <h3 className="text-2xl font-bold text-gray-800">Know Your Rights</h3>
+          <span className="text-sm text-gray-500">({filteredRights.length} rights)</span>
         </div>
 
         {/* Category Filter */}
@@ -208,18 +270,25 @@ export default function LegalRightsSection() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {filteredRights.map((right, index) => (
             <motion.div
-              key={right.id}
+              key={right._id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
-              className="border rounded-lg p-6 hover:shadow-md transition-shadow"
+              className="border rounded-lg p-6 hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => updateRightViews(right._id)}
             >
               <div className="flex items-start gap-4">
                 <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
-                  {right.icon}
+                  {getIconComponent(right.icon)}
                 </div>
                 <div className="flex-1">
-                  <h4 className="text-xl font-bold text-gray-800 mb-2">{right.title}</h4>
+                  <div className="flex items-start justify-between mb-2">
+                    <h4 className="text-xl font-bold text-gray-800">{right.title}</h4>
+                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                      <Eye className="w-3 h-3" />
+                      {right.views}
+                    </div>
+                  </div>
                   <p className="text-gray-600 mb-4">{right.description}</p>
                   <div className="space-y-2">
                     {right.details.map((detail, idx) => (
@@ -229,11 +298,22 @@ export default function LegalRightsSection() {
                       </div>
                     ))}
                   </div>
+                  {right.lastUpdated && (
+                    <p className="text-xs text-gray-400 mt-3">
+                      Last updated: {new Date(right.lastUpdated).toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
               </div>
             </motion.div>
           ))}
         </div>
+
+        {filteredRights.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            No rights found for the selected category.
+          </div>
+        )}
       </div>
 
       {/* Scheme Eligibility Checker */}
@@ -318,14 +398,14 @@ export default function LegalRightsSection() {
             <h3 className="text-2xl font-bold text-gray-800">Welfare Schemes</h3>
           </div>
           <div className="text-sm text-gray-600">
-            Showing {schemes.length} active schemes
+            Showing {activeSchemes.length} active schemes
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {schemes.map((scheme, index) => (
+          {activeSchemes.map((scheme, index) => (
             <motion.div
-              key={scheme.id}
+              key={scheme._id}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.1 }}
@@ -345,12 +425,18 @@ export default function LegalRightsSection() {
                     {scheme.status.toUpperCase()}
                   </div>
                 </div>
-                <motion.div
-                  animate={{ rotate: selectedScheme?.id === scheme.id ? 45 : 0 }}
-                  className="text-blue-600"
-                >
-                  <Eye className="w-5 h-5" />
-                </motion.div>
+                <div className="text-right text-xs text-gray-500">
+                  <div className="flex items-center gap-1">
+                    <Users className="w-3 h-3" />
+                    {scheme.applications} applications
+                  </div>
+                  <motion.div
+                    animate={{ rotate: selectedScheme?._id === scheme._id ? 45 : 0 }}
+                    className="text-blue-600 mt-1"
+                  >
+                    <Eye className="w-5 h-5" />
+                  </motion.div>
+                </div>
               </div>
 
               <p className="text-gray-600 mb-4">{scheme.description}</p>
@@ -391,6 +477,12 @@ export default function LegalRightsSection() {
             </motion.div>
           ))}
         </div>
+
+        {activeSchemes.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            No active schemes available at the moment.
+          </div>
+        )}
       </div>
 
       {/* Downloadable Resources */}
@@ -401,17 +493,14 @@ export default function LegalRightsSection() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            { title: 'Rights Handbook (Hindi)', size: '2.5 MB', format: 'PDF' },
-            { title: 'Scheme Guidelines (English)', size: '3.1 MB', format: 'PDF' },
-            { title: 'Application Forms (Tamil)', size: '1.8 MB', format: 'PDF' }
-          ].map((resource, index) => (
+          {resources.map((resource, index) => (
             <motion.div
-              key={index}
+              key={resource._id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
               className="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => handleDownload(resource._id)}
             >
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-purple-100 rounded-lg">
@@ -419,12 +508,23 @@ export default function LegalRightsSection() {
                 </div>
                 <div className="flex-1">
                   <h4 className="font-medium text-gray-800">{resource.title}</h4>
-                  <p className="text-sm text-gray-600">{resource.format} • {resource.size}</p>
+                  <p className="text-sm text-gray-600">
+                    {resource.format} • {resource.size} • {resource.language}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {resource.downloads} downloads
+                  </p>
                 </div>
               </div>
             </motion.div>
           ))}
         </div>
+
+        {resources.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            No resources available for download.
+          </div>
+        )}
       </div>
 
       {/* Scheme Detail Modal */}
@@ -445,7 +545,7 @@ export default function LegalRightsSection() {
               <h3 className="text-2xl font-bold text-gray-800">{selectedScheme.name}</h3>
               <button
                 onClick={() => setSelectedScheme(null)}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-gray-500 hover:text-gray-700 text-xl font-bold"
               >
                 ✕
               </button>
@@ -491,6 +591,12 @@ export default function LegalRightsSection() {
                   Download Form
                 </button>
               </div>
+
+              {selectedScheme.lastUpdated && (
+                <p className="text-xs text-gray-400 pt-4 border-t">
+                  Last updated: {new Date(selectedScheme.lastUpdated).toLocaleDateString()}
+                </p>
+              )}
             </div>
           </motion.div>
         </motion.div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Shield, 
@@ -15,11 +15,13 @@ import {
   Volume2,
   Languages,
   Eye,
-  Accessibility
+  Accessibility,
+  Download,
+  Play
 } from 'lucide-react';
 
 interface HelplineService {
-  id: string;
+  _id: string;
   name: string;
   category: string;
   phone: string;
@@ -27,21 +29,73 @@ interface HelplineService {
   languages: string[];
   services: string[];
   isEmergency: boolean;
+  isActive: boolean;
+  totalCalls?: number;
 }
 
 interface LegalAidCenter {
-  id: string;
+  _id: string;
   name: string;
   address: string;
   district: string;
   phone: string;
   services: string[];
   timings: string;
+  isActive: boolean;
+  capacity?: number;
+  currentCases?: number;
+}
+
+interface SupportResource {
+  _id: string;
+  title: string;
+  type: string;
+  size: string;
+  downloads: string;
+  category: string;
+  isActive: boolean;
+  lastUpdated: string;
+  fileUrl?: string;
+  videoUrl?: string;
+}
+
+interface ApiData {
+  helplines: HelplineService[];
+  centers: LegalAidCenter[];
+  resources: SupportResource[];
 }
 
 export default function LegalAidSection() {
   const [selectedCategory, setSelectedCategory] = useState<string>('women');
   const [selectedHelpline, setSelectedHelpline] = useState<HelplineService | null>(null);
+  const [data, setData] = useState<ApiData>({ helplines: [], centers: [], resources: [] });
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [downloadingResources, setDownloadingResources] = useState<Set<string>>(new Set());
+
+  // Fetch data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('http://localhost:5000/api/aid/all');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        setData(result);
+      } catch (err) {
+        console.error('Error fetching data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   const categories = [
     { id: 'women', name: 'Women Support', icon: <Heart className="w-5 h-5" />, color: 'pink' },
@@ -51,91 +105,16 @@ export default function LegalAidSection() {
     { id: 'child', name: 'Child Protection', icon: <Heart className="w-5 h-5" />, color: 'orange' }
   ];
 
-  const helplines: HelplineService[] = [
-    {
-      id: '1',
-      name: 'Women Helpline',
-      category: 'women',
-      phone: '181',
-      hours: '24/7',
-      languages: ['Hindi', 'English'],
-      services: ['Domestic Violence', 'Sexual Harassment', 'Dowry Issues', 'Workplace Discrimination'],
-      isEmergency: true
-    },
-    {
-      id: '2',
-      name: 'One Stop Centre',
-      category: 'women',
-      phone: '181',
-      hours: '24/7',
-      languages: ['Hindi', 'English', 'Regional Languages'],
-      services: ['Medical Aid', 'Legal Counseling', 'Shelter', 'Police Assistance'],
-      isEmergency: true
-    },
-    {
-      id: '3',
-      name: 'Elder Helpline',
-      category: 'seniors',
-      phone: '14567',
-      hours: '8 AM - 8 PM',
-      languages: ['Hindi', 'English'],
-      services: ['Elder Abuse', 'Property Disputes', 'Pension Issues', 'Healthcare Rights'],
-      isEmergency: false
-    },
-    {
-      id: '4',
-      name: 'SC/ST Helpline',
-      category: 'sc-st',
-      phone: '14566',
-      hours: '24/7',
-      languages: ['Hindi', 'English', 'Regional Languages'],
-      services: ['Atrocity Cases', 'Reservation Issues', 'Legal Aid', 'Fast Track Courts'],
-      isEmergency: true
-    },
-    {
-      id: '5',
-      name: 'Childline',
-      category: 'child',
-      phone: '1098',
-      hours: '24/7',
-      languages: ['Hindi', 'English'],
-      services: ['Child Abuse', 'Missing Children', 'Child Labor', 'Education Rights'],
-      isEmergency: true
-    },
-    {
-      id: '6',
-      name: 'Disability Helpline',
-      category: 'disabled',
-      phone: '1800-233-5956',
-      hours: '9 AM - 5 PM',
-      languages: ['Hindi', 'English'],
-      services: ['Rights Awareness', 'Certification Issues', 'Employment Support', 'Accessibility'],
-      isEmergency: false
-    }
-  ];
+  // Filter active helplines by category
+  const filteredHelplines = data.helplines.filter(
+    helpline => helpline.category === selectedCategory && helpline.isActive
+  );
 
-  const legalAidCenters: LegalAidCenter[] = [
-    {
-      id: '1',
-      name: 'District Legal Services Authority',
-      address: 'Court Complex, Civil Lines',
-      district: 'Delhi',
-      phone: '011-2338-7379',
-      services: ['Free Legal Aid', 'Lok Adalat', 'Mediation', 'Legal Awareness'],
-      timings: '10 AM - 5 PM (Mon-Fri)'
-    },
-    {
-      id: '2',
-      name: 'State Legal Services Authority',
-      address: 'High Court Building',
-      district: 'Mumbai',
-      phone: '022-2672-8901',
-      services: ['Free Legal Aid', 'Legal Literacy', 'Alternative Dispute Resolution'],
-      timings: '10 AM - 5 PM (Mon-Fri)'
-    }
-  ];
+  // Filter active centers
+  const activeCenters = data.centers.filter(center => center.isActive);
 
-  const filteredHelplines = helplines.filter(helpline => helpline.category === selectedCategory);
+  // Filter active resources
+  const activeResources = data.resources.filter(resource => resource.isActive);
 
   const emergencySteps = [
     {
@@ -167,6 +146,97 @@ export default function LegalAidSection() {
       color: 'purple'
     }
   ];
+
+  const handleResourceDownload = async (resource: SupportResource) => {
+    const resourceId = resource._id;
+    
+    // Prevent multiple simultaneous downloads of the same resource
+    if (downloadingResources.has(resourceId)) {
+      return;
+    }
+
+    try {
+      setDownloadingResources(prev => new Set(prev).add(resourceId));
+
+      if (resource.type.toLowerCase() === 'video' && resource.videoUrl) {
+        // For videos, open in new tab (can't directly download streaming videos)
+        window.open(resource.videoUrl, '_blank');
+        return;
+      }
+
+      if (!resource.fileUrl) {
+        alert('Download URL not available for this resource.');
+        return;
+      }
+
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement('a');
+      link.href = resource.fileUrl;
+      
+      // Extract filename from URL or use resource title
+      const urlParts = resource.fileUrl.split('/');
+      const filename = urlParts[urlParts.length - 1] || `${resource.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
+      
+      link.download = filename;
+      link.target = '_blank';
+      
+      // Add to DOM, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Optional: Update download count (if you want to track this)
+      // You could make an API call here to increment the download counter
+      console.log(`Downloaded: ${resource.title}`);
+      
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert('Failed to download the resource. Please try again.');
+    } finally {
+      // Remove from downloading set after a short delay
+      setTimeout(() => {
+        setDownloadingResources(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(resourceId);
+          return newSet;
+        });
+      }, 1000);
+    }
+  };
+
+  const handleResourceAccess = (resource: SupportResource) => {
+    if (resource.type.toLowerCase() === 'video' && resource.videoUrl) {
+      window.open(resource.videoUrl, '_blank');
+    } else if (resource.fileUrl) {
+      handleResourceDownload(resource);
+    } else {
+      alert('Resource not available.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-96">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+        <AlertTriangle className="w-12 h-12 text-red-600 mx-auto mb-4" />
+        <h3 className="text-xl font-bold text-red-800 mb-2">Error Loading Data</h3>
+        <p className="text-red-600">{error}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-12">
@@ -239,83 +309,96 @@ export default function LegalAidSection() {
           </h3>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredHelplines.map((helpline, index) => (
-            <motion.div
-              key={helpline.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className="border rounded-lg p-6 hover:shadow-lg transition-all cursor-pointer"
-              onClick={() => setSelectedHelpline(helpline)}
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h4 className="text-xl font-bold text-gray-800">{helpline.name}</h4>
-                  <div className="flex items-center gap-2 mt-2">
-                    <Phone className="w-4 h-4 text-green-600" />
-                    <a 
+        {filteredHelplines.length === 0 ? (
+          <div className="text-center py-12">
+            <Phone className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-lg">No helplines available for this category</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {filteredHelplines.map((helpline, index) => (
+              <motion.div
+                key={helpline._id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="border rounded-lg p-6 hover:shadow-lg transition-all cursor-pointer"
+                onClick={() => setSelectedHelpline(helpline)}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h4 className="text-xl font-bold text-gray-800">{helpline.name}</h4>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Phone className="w-4 h-4 text-green-600" />
+                      <a 
+                        href={`tel:${helpline.phone}`}
+                        className="text-2xl font-bold text-green-600 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {helpline.phone}
+                      </a>
+                    </div>
+                  </div>
+                  {helpline.isEmergency && (
+                    <span className="px-2 py-1 bg-red-100 text-red-800 text-xs font-medium rounded-full">
+                      Emergency
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Clock className="w-4 h-4" />
+                    <span className="text-sm">{helpline.hours}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Languages className="w-4 h-4" />
+                    <span className="text-sm">{helpline.languages.join(', ')}</span>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 mb-2">Services Available:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {helpline.services.slice(0, 3).map((service, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full"
+                        >
+                          {service}
+                        </span>
+                      ))}
+                      {helpline.services.length > 3 && (
+                        <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                          +{helpline.services.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {helpline.totalCalls && (
+                    <div className="text-sm text-gray-500">
+                      Total calls handled: {helpline.totalCalls.toLocaleString()}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-4">
+                    <a
                       href={`tel:${helpline.phone}`}
-                      className="text-2xl font-bold text-green-600 hover:underline"
+                      className="flex-1 px-4 py-2 bg-green-600 text-white text-center font-medium rounded-lg hover:bg-green-700 transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {helpline.phone}
+                      Call Now
                     </a>
+                    <button className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                      More Info
+                    </button>
                   </div>
                 </div>
-                {helpline.isEmergency && (
-                  <span className="px-2 py-1 bg-red-100 text-red-800 text-xs font-medium rounded-full">
-                    Emergency
-                  </span>
-                )}
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Clock className="w-4 h-4" />
-                  <span className="text-sm">{helpline.hours}</span>
-                </div>
-
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Languages className="w-4 h-4" />
-                  <span className="text-sm">{helpline.languages.join(', ')}</span>
-                </div>
-
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-2">Services Available:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {helpline.services.slice(0, 3).map((service, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full"
-                      >
-                        {service}
-                      </span>
-                    ))}
-                    {helpline.services.length > 3 && (
-                      <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                        +{helpline.services.length - 3} more
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-4">
-                  <a
-                    href={`tel:${helpline.phone}`}
-                    className="flex-1 px-4 py-2 bg-green-600 text-white text-center font-medium rounded-lg hover:bg-green-700 transition-colors"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    Call Now
-                  </a>
-                  <button className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">
-                    More Info
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Emergency Process Steps */}
@@ -411,74 +494,87 @@ export default function LegalAidSection() {
       </div>
 
       {/* Legal Aid Centers */}
-      <div className="bg-white rounded-xl shadow-lg p-8">
-        <div className="flex items-center gap-3 mb-6">
-          <MapPin className="w-8 h-8 text-green-600" />
-          <h3 className="text-2xl font-bold text-gray-800">Nearby Legal Aid Centers</h3>
-        </div>
+      {activeCenters.length > 0 && (
+        <div className="bg-white rounded-xl shadow-lg p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <MapPin className="w-8 h-8 text-green-600" />
+            <h3 className="text-2xl font-bold text-gray-800">Nearby Legal Aid Centers</h3>
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {legalAidCenters.map((center, index) => (
-            <motion.div
-              key={center.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className="border rounded-lg p-6 hover:shadow-lg transition-shadow"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h4 className="text-xl font-bold text-gray-800">{center.name}</h4>
-                  <p className="text-gray-600 mt-1">{center.district}</p>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-2 text-green-600">
-                    <Phone className="w-4 h-4" />
-                    <a href={`tel:${center.phone}`} className="font-medium hover:underline">
-                      {center.phone}
-                    </a>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {activeCenters.map((center, index) => (
+              <motion.div
+                key={center._id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="border rounded-lg p-6 hover:shadow-lg transition-shadow"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h4 className="text-xl font-bold text-gray-800">{center.name}</h4>
+                    <p className="text-gray-600 mt-1">{center.district}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="flex items-center gap-2 text-green-600">
+                      <Phone className="w-4 h-4" />
+                      <a href={`tel:${center.phone}`} className="font-medium hover:underline">
+                        {center.phone}
+                      </a>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-3">
-                <div className="flex items-start gap-2">
-                  <MapPin className="w-4 h-4 text-gray-500 mt-1" />
-                  <p className="text-sm text-gray-600">{center.address}</p>
-                </div>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-4 h-4 text-gray-500 mt-1" />
+                    <p className="text-sm text-gray-600">{center.address}</p>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-gray-500" />
-                  <p className="text-sm text-gray-600">{center.timings}</p>
-                </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-gray-500" />
+                    <p className="text-sm text-gray-600">{center.timings}</p>
+                  </div>
 
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-2">Services:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {center.services.map((service, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full"
-                      >
-                        {service}
+                  {center.capacity && center.currentCases && (
+                    <div className="flex items-center gap-4 text-sm">
+                      <span className="text-gray-600">
+                        Capacity: <span className="font-medium">{center.capacity}</span>
                       </span>
-                    ))}
+                      <span className="text-gray-600">
+                        Current Cases: <span className="font-medium">{center.currentCases}</span>
+                      </span>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 mb-2">Services:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {center.services.map((service, idx) => (
+                        <span
+                          key={idx}
+                          className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full"
+                        >
+                          {service}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-4 border-t">
+                    <button className="flex-1 px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors">
+                      Get Directions
+                    </button>
+                    <button className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                      Contact
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex gap-2 pt-4 border-t">
-                  <button className="flex-1 px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors">
-                    Get Directions
-                  </button>
-                  <button className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">
-                    Contact
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Accessibility Features */}
       <div className="bg-purple-50 rounded-xl p-8">
@@ -593,24 +689,32 @@ export default function LegalAidSection() {
                 </div>
               </div>
 
+              {selectedHelpline.totalCalls && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600">
+                    This helpline has handled <span className="font-bold text-gray-800">{selectedHelpline.totalCalls.toLocaleString()}</span> calls successfully.
+                  </p>
+                </div>
+              )}
+
               <div className="border-t pt-4">
                 <h4 className="font-bold text-gray-800 mb-3">What to Expect:</h4>
                 <ul className="space-y-2 text-sm text-gray-600">
                   <li className="flex items-start gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
-                    <span>Trained counselors available to listen and provide guidance</span>
+                    <span>Trained counselors available</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
-                    <span>Confidential and non-judgmental support</span>
+                    <span>Confidential and free support</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
-                    <span>Referrals to legal aid, shelters, and other services</span>
+                    <span>Multilingual assistance available</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
-                    <span>Emergency intervention when needed</span>
+                    <span>Referrals to local support services</span>
                   </li>
                 </ul>
               </div>
@@ -618,12 +722,15 @@ export default function LegalAidSection() {
               <div className="flex gap-4 pt-4">
                 <a
                   href={`tel:${selectedHelpline.phone}`}
-                  className="flex-1 px-6 py-3 bg-green-600 text-white font-bold text-center rounded-lg hover:bg-green-700 transition-colors"
+                  className="flex-1 px-6 py-3 bg-green-600 text-white text-center font-medium rounded-lg hover:bg-green-700 transition-colors"
                 >
                   Call Now
                 </a>
-                <button className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors">
-                  WhatsApp Chat
+                <button 
+                  onClick={() => setSelectedHelpline(null)}
+                  className="px-6 py-3 bg-gray-200 text-gray-800 font-medium rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Close
                 </button>
               </div>
             </div>
@@ -632,44 +739,156 @@ export default function LegalAidSection() {
       )}
 
       {/* Support Resources */}
-      <div className="bg-gray-50 rounded-xl p-8">
-        <div className="flex items-center gap-3 mb-6">
-          <FileText className="w-8 h-8 text-indigo-600" />
-          <h3 className="text-2xl font-bold text-gray-800">Support Resources</h3>
-        </div>
+      {activeResources.length > 0 && (
+        <div className="bg-white rounded-xl shadow-lg p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <FileText className="w-8 h-8 text-indigo-600" />
+            <h3 className="text-2xl font-bold text-gray-800">Support Resources</h3>
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { title: 'Women Safety Guide', type: 'PDF', size: '2.1 MB', downloads: '15K+' },
-            { title: 'Senior Rights Handbook', type: 'PDF', size: '1.8 MB', downloads: '8K+' },
-            { title: 'SC/ST Act Simplified', type: 'PDF', size: '1.5 MB', downloads: '12K+' },
-            { title: 'Child Protection Guide', type: 'PDF', size: '2.3 MB', downloads: '6K+' }
-          ].map((resource, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className="bg-white p-4 rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-            >
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-indigo-100 rounded-lg">
-                  <FileText className="w-5 h-5 text-indigo-600" />
-                </div>
-                <div className="flex-1">
-                  <h4 className="font-medium text-gray-800 mb-1">{resource.title}</h4>
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>{resource.type} • {resource.size}</span>
-                    <span>{resource.downloads} downloads</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {activeResources.map((resource, index) => (
+              <motion.div
+                key={resource._id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="border rounded-lg p-6 hover:shadow-lg transition-shadow"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h4 className="text-lg font-bold text-gray-800 mb-2">{resource.title}</h4>
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        resource.type.toLowerCase() === 'video' 
+                          ? 'bg-red-100 text-red-800' 
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {resource.type}
+                      </span>
+                      <span>•</span>
+                      <span>{resource.size}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="flex items-center gap-1 text-gray-500 text-sm">
+                      <Download className="w-4 h-4" />
+                      <span>{resource.downloads}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <button className="w-full mt-3 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
-                Download
-              </button>
-            </motion.div>
-          ))}
+
+                <div className="space-y-3">
+                  <div className="text-sm text-gray-600">
+                    Category: <span className="font-medium">{resource.category}</span>
+                  </div>
+                  
+                  <div className="text-sm text-gray-500">
+                    Last updated: {new Date(resource.lastUpdated).toLocaleDateString()}
+                  </div>
+
+                  <div className="flex gap-2 pt-4 border-t">
+                    <button
+                      onClick={() => handleResourceAccess(resource)}
+                      disabled={downloadingResources.has(resource._id)}
+                      className={`flex-1 px-4 py-2 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                        downloadingResources.has(resource._id)
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : resource.type.toLowerCase() === 'video'
+                          ? 'bg-red-600 text-white hover:bg-red-700'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                    >
+                      {downloadingResources.has(resource._id) ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          Processing...
+                        </>
+                      ) : resource.type.toLowerCase() === 'video' ? (
+                        <>
+                          <Play className="w-4 h-4" />
+                          Watch Video
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-4 h-4" />
+                          Download
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </div>
+      )}
+
+      {/* Quick Help Section */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-8">
+        <div className="text-center mb-8">
+          <h3 className="text-2xl font-bold text-gray-800 mb-4">Need Immediate Help?</h3>
+          <p className="text-gray-600 max-w-2xl mx-auto">
+            If you're in immediate danger or need urgent legal assistance, don't hesitate to reach out.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-lg text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Phone className="w-8 h-8 text-red-600" />
+            </div>
+            <h4 className="font-bold text-gray-800 mb-2">Emergency Call</h4>
+            <p className="text-sm text-gray-600 mb-4">
+              For immediate danger or emergency situations
+            </p>
+            <a
+              href="tel:100"
+              className="inline-block px-6 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Call 100
+            </a>
+          </div>
+
+          <div className="bg-white p-6 rounded-lg text-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Heart className="w-8 h-8 text-green-600" />
+            </div>
+            <h4 className="font-bold text-gray-800 mb-2">Support Helpline</h4>
+            <p className="text-sm text-gray-600 mb-4">
+              24/7 counseling and emotional support
+            </p>
+            <a
+              href="tel:181"
+              className="inline-block px-6 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Call 181
+            </a>
+          </div>
+
+          <div className="bg-white p-6 rounded-lg text-center">
+            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-8 h-8 text-blue-600" />
+            </div>
+            <h4 className="font-bold text-gray-800 mb-2">Legal Aid Center</h4>
+            <p className="text-sm text-gray-600 mb-4">
+              Free legal consultation and representation
+            </p>
+            <button className="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">
+              Find Center
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer Message */}
+      <div className="text-center py-8">
+        <p className="text-gray-600">
+          Remember: Legal aid is your right. Don't hesitate to seek help when you need it.
+        </p>
+        <p className="text-sm text-gray-500 mt-2">
+          All services listed are confidential and free of charge.
+        </p>
       </div>
     </div>
   );

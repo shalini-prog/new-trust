@@ -86,8 +86,10 @@ export default function AdminGalleryHero() {
   const [previewDevice, setPreviewDevice] = useState('desktop');
   const [isPlaying, setIsPlaying] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
+  const [isImageUploading, setIsImageUploading] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+  const [imageUploadProgress, setImageUploadProgress] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -134,68 +136,103 @@ export default function AdminGalleryHero() {
     }
   };
 
-  const handleFileUpload = async (type: 'video' | 'image', file: File) => {
-  if (!file) return;
+  // Separate function for video upload
+  const handleVideoUpload = async (file: File) => {
+    if (!file) return;
 
-  setIsUploading(true);
-  setUploadProgress(0);
+    setIsVideoUploading(true);
+    setVideoUploadProgress(0);
 
-  try {
-    const formData = new FormData();
-    formData.append(type, file); // Use 'image' or 'video' as field name
+    try {
+      const formData = new FormData();
+      formData.append('video', file);
 
-    // Set correct endpoint based on file type
-    const endpoint =
-      type === 'video'
-        ? 'http://localhost:5000/api/ghero/upload-video'
-        : 'http://localhost:5000/api/ghero/upload-image';
+      // Simulate upload progress
+      const progressInterval = setInterval(() => {
+        setVideoUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return prev + 10;
+        });
+      }, 100);
 
-    // Simulate upload progress
-    const progressInterval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 90) {
-          clearInterval(progressInterval);
-          return prev;
-        }
-        return prev + 10;
+      const response = await fetch('http://localhost:5000/api/ghero/upload-video', {
+        method: 'POST',
+        body: formData,
       });
-    }, 100);
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      body: formData,
-    });
+      clearInterval(progressInterval);
+      setVideoUploadProgress(100);
 
-    clearInterval(progressInterval);
-    setUploadProgress(100);
-
-    if (response.ok) {
-      const data = await response.json();
-      const uploadedUrl = data.url;
-
-      if (type === 'video') {
+      if (response.ok) {
+        const data = await response.json();
+        const uploadedUrl = data.url;
         setSettings(prev => ({ ...prev, videoUrl: uploadedUrl }));
+        console.log('Video uploaded successfully:', uploadedUrl);
       } else {
-        setSettings(prev => ({ ...prev, imageUrl: uploadedUrl }));
+        throw new Error('Video upload failed');
       }
-    } else {
-      throw new Error('Upload failed');
-    }
-  } catch (error) {
-    console.error('Error uploading file:', error);
-    // Fallback to local blob preview
-    const url = URL.createObjectURL(file);
-    if (type === 'video') {
+    } catch (error) {
+      console.error('Error uploading video:', error);
+      // Fallback to local blob preview
+      const url = URL.createObjectURL(file);
       setSettings(prev => ({ ...prev, videoUrl: url }));
-    } else {
-      setSettings(prev => ({ ...prev, imageUrl: url }));
+    } finally {
+      setIsVideoUploading(false);
+      setVideoUploadProgress(0);
     }
-  } finally {
-    setIsUploading(false);
-    setUploadProgress(0);
-  }
-};
+  };
 
+  // Separate function for image upload
+  const handleImageUpload = async (file: File) => {
+    if (!file) return;
+
+    setIsImageUploading(true);
+    setImageUploadProgress(0);
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      // Simulate upload progress
+      const progressInterval = setInterval(() => {
+        setImageUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return prev + 10;
+        });
+      }, 100);
+
+      const response = await fetch('http://localhost:5000/api/ghero/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      clearInterval(progressInterval);
+      setImageUploadProgress(100);
+
+      if (response.ok) {
+        const data = await response.json();
+        const uploadedUrl = data.url;
+        setSettings(prev => ({ ...prev, imageUrl: uploadedUrl }));
+        console.log('Image uploaded successfully:', uploadedUrl);
+      } else {
+        throw new Error('Image upload failed');
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      // Fallback to local blob preview
+      const url = URL.createObjectURL(file);
+      setSettings(prev => ({ ...prev, imageUrl: url }));
+    } finally {
+      setIsImageUploading(false);
+      setImageUploadProgress(0);
+    }
+  };
 
   const triggerFileInput = (type: 'video' | 'image') => {
     if (type === 'video' && videoInputRef.current) {
@@ -205,18 +242,26 @@ export default function AdminGalleryHero() {
     }
   };
 
-  const handleDrop = (e: React.DragEvent, type: 'video' | 'image') => {
+  const handleVideoDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) {
-      const isValidType = type === 'video' ? 
-        file.type.startsWith('video/') : 
-        file.type.startsWith('image/');
-      
-      if (isValidType) {
-        handleFileUpload(type, file);
+      if (file.type.startsWith('video/')) {
+        handleVideoUpload(file);
       } else {
-        alert(`Please select a valid ${type} file`);
+        alert('Please select a valid video file');
+      }
+    }
+  };
+
+  const handleImageDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      if (file.type.startsWith('image/')) {
+        handleImageUpload(file);
+      } else {
+        alert('Please select a valid image file');
       }
     }
   };
@@ -403,21 +448,21 @@ export default function AdminGalleryHero() {
                         </div>
                       )}
 
-                      {/* Upload Area */}
+                      {/* Video Upload Area */}
                       <div
                         className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
-                        onDrop={(e) => handleDrop(e, 'video')}
+                        onDrop={handleVideoDrop}
                         onDragOver={handleDragOver}
                         onClick={() => triggerFileInput('video')}
                       >
-                        {isUploading ? (
+                        {isVideoUploading ? (
                           <div className="space-y-2">
                             <RefreshCw className="w-8 h-8 text-blue-500 mx-auto animate-spin" />
-                            <p className="text-sm text-gray-600">Uploading... {uploadProgress}%</p>
+                            <p className="text-sm text-gray-600">Uploading video... {videoUploadProgress}%</p>
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div 
                                 className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${uploadProgress}%` }}
+                                style={{ width: `${videoUploadProgress}%` }}
                               />
                             </div>
                           </div>
@@ -437,7 +482,7 @@ export default function AdminGalleryHero() {
                         className="hidden"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) handleFileUpload('video', file);
+                          if (file) handleVideoUpload(file);
                         }}
                       />
                       
@@ -507,21 +552,21 @@ export default function AdminGalleryHero() {
                         </div>
                       )}
 
-                      {/* Upload Area */}
+                      {/* Image Upload Area */}
                       <div
                         className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
-                        onDrop={(e) => handleDrop(e, 'image')}
+                        onDrop={handleImageDrop}
                         onDragOver={handleDragOver}
                         onClick={() => triggerFileInput('image')}
                       >
-                        {isUploading ? (
+                        {isImageUploading ? (
                           <div className="space-y-2">
                             <RefreshCw className="w-8 h-8 text-blue-500 mx-auto animate-spin" />
-                            <p className="text-sm text-gray-600">Uploading... {uploadProgress}%</p>
+                            <p className="text-sm text-gray-600">Uploading image... {imageUploadProgress}%</p>
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div 
                                 className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${uploadProgress}%` }}
+                                style={{ width: `${imageUploadProgress}%` }}
                               />
                             </div>
                           </div>
@@ -541,7 +586,7 @@ export default function AdminGalleryHero() {
                         className="hidden"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) handleFileUpload('image', file);
+                          if (file) handleImageUpload(file);
                         }}
                       />
                     </div>

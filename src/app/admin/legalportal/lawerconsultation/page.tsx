@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   MessageCircle, 
@@ -27,7 +27,10 @@ import {
   Settings,
   BarChart3,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  User,
+  Upload,
+  Image
 } from 'lucide-react';
 
 interface Lawyer {
@@ -83,6 +86,27 @@ export default function LawyerConsultationAdmin() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [selectedLawyer, setSelectedLawyer] = useState<Lawyer | null>(null);
   const [showAddLawyer, setShowAddLawyer] = useState(false);
+  const [consultationFilter, setConsultationFilter] = useState('all');
+  const [appointmentFilter, setAppointmentFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [editingConsultation, setEditingConsultation] = useState<Consultation | null>(null);
+  const [editingLawyer, setEditingLawyer] = useState<Lawyer | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  // New Lawyer Form State
+  const [newLawyerForm, setNewLawyerForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    experience: 0,
+    specializations: [] as string[],
+    languages: [] as string[],
+    status: 'active' as 'active' | 'inactive',
+    isVerified: true,
+    avatar: '/api/placeholder/64/64'
+  });
 
   const [stats, setStats] = useState<AdminStats>({
     totalLawyers: 45,
@@ -208,6 +232,20 @@ export default function LawyerConsultationAdmin() {
     }
   ]);
 
+  const filteredConsultations = consultations.filter(consultation => {
+    const matchesFilter = consultationFilter === 'all' || consultation.status === consultationFilter;
+    const matchesSearch = consultation.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         consultation.lawyerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         consultation.category.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  // Pagination logic
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentConsultations = filteredConsultations.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredConsultations.length / itemsPerPage);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'text-green-600 bg-green-100';
@@ -243,6 +281,158 @@ export default function LawyerConsultationAdmin() {
         ? { ...lawyer, status: lawyer.status === 'active' ? 'inactive' : 'active' }
         : lawyer
     ));
+  };
+
+  // Form handling functions
+  const handleFormChange = (field: keyof typeof newLawyerForm, value: any) => {
+    setNewLawyerForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleSpecializationChange = (spec: string, checked: boolean) => {
+    setNewLawyerForm(prev => ({
+      ...prev,
+      specializations: checked 
+        ? [...prev.specializations, spec]
+        : prev.specializations.filter(s => s !== spec)
+    }));
+  };
+
+  const handleLanguageChange = (lang: string, checked: boolean) => {
+    setNewLawyerForm(prev => ({
+      ...prev,
+      languages: checked 
+        ? [...prev.languages, lang]
+        : prev.languages.filter(l => l !== lang)
+    }));
+  };
+
+  const handleAddLawyer = () => {
+    const newLawyer = {
+      id: (lawyers.length + 1).toString(),
+      name: newLawyerForm.name,
+      email: newLawyerForm.email,
+      phone: newLawyerForm.phone,
+      specialization: newLawyerForm.specializations,
+      experience: newLawyerForm.experience,
+      rating: 0,
+      avatar: newLawyerForm.avatar,
+      isOnline: false,
+      isVerified: newLawyerForm.isVerified,
+      languages: newLawyerForm.languages,
+      totalConsultations: 0,
+      status: newLawyerForm.status,
+      joinDate: new Date().toISOString().split('T')[0],
+      lastActive: new Date().toISOString()
+    };
+
+    setLawyers(prev => [...prev, newLawyer]);
+    setStats(prev => ({
+      ...prev,
+      totalLawyers: prev.totalLawyers + 1,
+      activeLawyers: newLawyer.status === 'active' ? prev.activeLawyers + 1 : prev.activeLawyers
+    }));
+    
+    // Reset form
+    setNewLawyerForm({
+      name: '',
+      email: '',
+      phone: '',
+      experience: 0,
+      specializations: [],
+      languages: [],
+      status: 'active',
+      isVerified: true,
+      avatar: '/api/placeholder/64/64'
+    });
+    
+    setShowAddLawyer(false);
+  };
+
+  // Update consultation status function
+  const updateConsultationStatus = (id: string, newStatus: string) => {
+    setConsultations(prev => prev.map(consultation => 
+      consultation.id === id 
+        ? { ...consultation, status: newStatus as any }
+        : consultation
+    ));
+  };
+
+  // Delete consultation function
+  const deleteConsultation = (id: string) => {
+    setConsultations(prev => prev.filter(consultation => consultation.id !== id));
+  };
+
+  // Export data function
+  const exportData = (type: 'consultations' | 'lawyers') => {
+    const data = type === 'consultations' ? consultations : lawyers;
+    const jsonString = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Handle file upload
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        setPreviewImage(result);
+        if (editingLawyer) {
+          setEditingLawyer({ ...editingLawyer, avatar: result });
+        } else {
+          setNewLawyerForm({ ...newLawyerForm, avatar: result });
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Trigger file input click
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
+  // Edit lawyer function
+  const handleEditLawyer = (lawyer: Lawyer) => {
+    setEditingLawyer(lawyer);
+    setPreviewImage(lawyer.avatar);
+  };
+
+  // Save edited lawyer
+  const saveEditedLawyer = () => {
+    if (editingLawyer) {
+      setLawyers(prev => prev.map(l => 
+        l.id === editingLawyer.id ? editingLawyer : l
+      ));
+      setEditingLawyer(null);
+      setSelectedLawyer(null);
+    }
+  };
+
+  // Edit consultation function
+  const handleEditConsultation = (consultation: Consultation) => {
+    setEditingConsultation(consultation);
+  };
+
+  // Save edited consultation
+  const saveEditedConsultation = () => {
+    if (editingConsultation) {
+      setConsultations(prev => prev.map(c => 
+        c.id === editingConsultation.id ? editingConsultation : c
+      ));
+      setEditingConsultation(null);
+    }
   };
 
   return (
@@ -545,7 +735,10 @@ export default function LawyerConsultationAdmin() {
                     <Eye className="w-4 h-4" />
                     View
                   </button>
-                  <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 text-sm">
+                  <button 
+                    onClick={() => handleEditLawyer(lawyer)}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 text-sm"
+                  >
                     <Edit className="w-4 h-4" />
                     Edit
                   </button>
@@ -578,11 +771,21 @@ export default function LawyerConsultationAdmin() {
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-gray-900">Active Consultations</h3>
                 <div className="flex gap-2">
-                  <button className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 text-sm">
-                    <Filter className="w-4 h-4" />
-                    Filter
-                  </button>
-                  <button className="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 text-sm">
+                  <select
+                    value={consultationFilter}
+                    onChange={(e) => setConsultationFilter(e.target.value)}
+                    className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 text-sm border-0"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="active">Active</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                  <button 
+                    onClick={() => exportData('consultations')}
+                    className="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 text-sm"
+                  >
                     <Download className="w-4 h-4" />
                     Export
                   </button>
@@ -604,7 +807,7 @@ export default function LawyerConsultationAdmin() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {consultations.map((consultation) => (
+                  {currentConsultations.map((consultation) => (
                     <tr key={consultation.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
@@ -632,9 +835,16 @@ export default function LawyerConsultationAdmin() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(consultation.status)}`}>
-                          {consultation.status}
-                        </span>
+                        <select
+                          value={consultation.status}
+                          onChange={(e) => updateConsultationStatus(consultation.id, e.target.value)}
+                          className={`px-2 py-1 text-xs font-medium rounded-full border-0 ${getStatusColor(consultation.status)}`}
+                        >
+                          <option value="pending">pending</option>
+                          <option value="active">active</option>
+                          <option value="completed">completed</option>
+                          <option value="cancelled">cancelled</option>
+                        </select>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-500">{consultation.createdAt}</div>
@@ -644,10 +854,16 @@ export default function LawyerConsultationAdmin() {
                           <button className="p-1 text-blue-600 hover:text-blue-800">
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button className="p-1 text-gray-600 hover:text-gray-800">
+                          <button 
+                            onClick={() => handleEditConsultation(consultation)}
+                            className="p-1 text-gray-600 hover:text-gray-800"
+                          >
                             <Edit className="w-4 h-4" />
                           </button>
-                          <button className="p-1 text-red-600 hover:text-red-800">
+                          <button 
+                            onClick={() => deleteConsultation(consultation.id)}
+                            className="p-1 text-red-600 hover:text-red-800"
+                          >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -659,13 +875,26 @@ export default function LawyerConsultationAdmin() {
             </div>
             <div className="px-6 py-4 border-t flex justify-between items-center">
               <div className="text-sm text-gray-500">
-                Showing <span className="font-medium">1</span> to <span className="font-medium">10</span> of <span className="font-medium">24</span> results
+                Showing <span className="font-medium">{indexOfFirstItem + 1}</span> to{' '}
+                <span className="font-medium">{Math.min(indexOfLastItem, filteredConsultations.length)}</span> of{' '}
+                <span className="font-medium">{filteredConsultations.length}</span> results
               </div>
               <div className="flex gap-2">
-                <button className="px-3 py-1 border rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
                   Previous
                 </button>
-                <button className="px-3 py-1 border rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">
+                <span className="px-3 py-1 text-sm text-gray-700">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 border rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
                   Next
                 </button>
               </div>
@@ -686,11 +915,21 @@ export default function LawyerConsultationAdmin() {
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-gray-900">Scheduled Appointments</h3>
                 <div className="flex gap-2">
-                  <button className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 text-sm">
-                    <Filter className="w-4 h-4" />
-                    Filter
-                  </button>
-                  <button className="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 text-sm">
+                  <select
+                    value={appointmentFilter}
+                    onChange={(e) => setAppointmentFilter(e.target.value)}
+                    className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 text-sm border-0"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                  <button 
+                    onClick={() => exportData('consultations')}
+                    className="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 text-sm"
+                  >
                     <Download className="w-4 h-4" />
                     Export
                   </button>
@@ -737,7 +976,10 @@ export default function LawyerConsultationAdmin() {
                           <button className="p-1 text-blue-600 hover:text-blue-800">
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button className="p-1 text-gray-600 hover:text-gray-800">
+                          <button 
+                            onClick={() => handleEditConsultation(consultation)}
+                            className="p-1 text-gray-600 hover:text-gray-800"
+                          >
                             <Edit className="w-4 h-4" />
                           </button>
                           <button className="p-1 text-red-600 hover:text-red-800">
@@ -918,8 +1160,386 @@ export default function LawyerConsultationAdmin() {
                 >
                   Close
                 </button>
-                <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <button 
+                  onClick={() => handleEditLawyer(selectedLawyer)}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
                   Edit Profile
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Lawyer Modal */}
+      <AnimatePresence>
+        {editingLawyer && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 50 }}
+              className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="p-6 border-b sticky top-0 bg-white z-10">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xl font-bold text-gray-900">Edit Lawyer</h3>
+                  <button
+                    onClick={() => setEditingLawyer(null)}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <div className="p-6">
+                <form className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                      <input
+                        type="text"
+                        value={editingLawyer.name}
+                        onChange={(e) => setEditingLawyer({...editingLawyer, name: e.target.value})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter lawyer's full name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                      <input
+                        type="email"
+                        value={editingLawyer.email}
+                        onChange={(e) => setEditingLawyer({...editingLawyer, email: e.target.value})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter lawyer's email"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+                      <input
+                        type="tel"
+                        value={editingLawyer.phone}
+                        onChange={(e) => setEditingLawyer({...editingLawyer, phone: e.target.value})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter lawyer's phone number"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Experience (Years)</label>
+                      <input
+                        type="number"
+                        value={editingLawyer.experience}
+                        onChange={(e) => setEditingLawyer({...editingLawyer, experience: parseInt(e.target.value)})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter years of experience"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Specializations</label>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {['Family Law', 'Property Law', 'Criminal Law', 'Corporate Law', 'Consumer Rights'].map((spec) => (
+                        <label key={spec} className="inline-flex items-center">
+                          <input 
+                            type="checkbox" 
+                            checked={editingLawyer.specialization.includes(spec)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEditingLawyer({
+                                  ...editingLawyer,
+                                  specialization: [...editingLawyer.specialization, spec]
+                                });
+                              } else {
+                                setEditingLawyer({
+                                  ...editingLawyer,
+                                  specialization: editingLawyer.specialization.filter(s => s !== spec)
+                                });
+                              }
+                            }}
+                            className="rounded text-blue-600" 
+                          />
+                          <span className="ml-2 text-sm text-gray-700">{spec}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Languages</label>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {['Hindi', 'English', 'Punjabi', 'Gujarati', 'Bengali'].map((lang) => (
+                        <label key={lang} className="inline-flex items-center">
+                          <input 
+                            type="checkbox" 
+                            checked={editingLawyer.languages.includes(lang)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEditingLawyer({
+                                  ...editingLawyer,
+                                  languages: [...editingLawyer.languages, lang]
+                                });
+                              } else {
+                                setEditingLawyer({
+                                  ...editingLawyer,
+                                  languages: editingLawyer.languages.filter(l => l !== lang)
+                                });
+                              }
+                            }}
+                            className="rounded text-blue-600" 
+                          />
+                          <span className="ml-2 text-sm text-gray-700">{lang}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                      <select 
+                        value={editingLawyer.status}
+                        onChange={(e) => setEditingLawyer({...editingLawyer, status: e.target.value as any})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="suspended">Suspended</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Verification</label>
+                      <select 
+                        value={editingLawyer.isVerified.toString()}
+                        onChange={(e) => setEditingLawyer({...editingLawyer, isVerified: e.target.value === 'true'})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="true">Verified</option>
+                        <option value="false">Unverified</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Profile Photo</label>
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        <img
+                          src={editingLawyer.avatar}
+                          alt={editingLawyer.name}
+                          className="w-16 h-16 rounded-full object-cover"
+                        />
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileUpload}
+                          accept="image/*"
+                          className="hidden"
+                        />
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={triggerFileInput}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                      >
+                        <Upload className="w-4 h-4" />
+                        Upload Photo
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+              <div className="p-6 border-t flex justify-end gap-3">
+                <button
+                  onClick={() => setEditingLawyer(null)}
+                  className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={saveEditedLawyer}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Consultation Modal */}
+      <AnimatePresence>
+        {editingConsultation && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 50 }}
+              className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="p-6 border-b sticky top-0 bg-white z-10">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xl font-bold text-gray-900">Edit Consultation</h3>
+                  <button
+                    onClick={() => setEditingConsultation(null)}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <div className="p-6">
+                <form className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Client Name</label>
+                      <input
+                        type="text"
+                        value={editingConsultation.clientName}
+                        onChange={(e) => setEditingConsultation({...editingConsultation, clientName: e.target.value})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter client name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Client Email</label>
+                      <input
+                        type="email"
+                        value={editingConsultation.clientEmail}
+                        onChange={(e) => setEditingConsultation({...editingConsultation, clientEmail: e.target.value})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter client email"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Lawyer</label>
+                      <select
+                        value={editingConsultation.lawyerId}
+                        onChange={(e) => {
+                          const selectedLawyer = lawyers.find(l => l.id === e.target.value);
+                          if (selectedLawyer) {
+                            setEditingConsultation({
+                              ...editingConsultation,
+                              lawyerId: selectedLawyer.id,
+                              lawyerName: selectedLawyer.name
+                            });
+                          }
+                        }}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        {lawyers.map(lawyer => (
+                          <option key={lawyer.id} value={lawyer.id}>{lawyer.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Consultation Type</label>
+                      <select
+                        value={editingConsultation.type}
+                        onChange={(e) => setEditingConsultation({...editingConsultation, type: e.target.value as any})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="chat">Chat</option>
+                        <option value="email">Email</option>
+                        <option value="video">Video</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                      <input
+                        type="text"
+                        value={editingConsultation.category}
+                        onChange={(e) => setEditingConsultation({...editingConsultation, category: e.target.value})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter category"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                      <select
+                        value={editingConsultation.priority}
+                        onChange={(e) => setEditingConsultation({...editingConsultation, priority: e.target.value as any})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="normal">Normal</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="emergency">Emergency</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                      <select
+                        value={editingConsultation.status}
+                        onChange={(e) => setEditingConsultation({...editingConsultation, status: e.target.value as any})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Created At</label>
+                      <input
+                        type="datetime-local"
+                        value={editingConsultation.createdAt}
+                        onChange={(e) => setEditingConsultation({...editingConsultation, createdAt: e.target.value})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+
+                  {editingConsultation.type === 'video' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Scheduled At</label>
+                      <input
+                        type="datetime-local"
+                        value={editingConsultation.scheduledAt || ''}
+                        onChange={(e) => setEditingConsultation({...editingConsultation, scheduledAt: e.target.value})}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  )}
+                </form>
+              </div>
+              <div className="p-6 border-t flex justify-end gap-3">
+                <button
+                  onClick={() => setEditingConsultation(null)}
+                  className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={saveEditedConsultation}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Save Changes
                 </button>
               </div>
             </motion.div>
@@ -960,6 +1580,8 @@ export default function LawyerConsultationAdmin() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
                       <input
                         type="text"
+                        value={newLawyerForm.name}
+                        onChange={(e) => handleFormChange('name', e.target.value)}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Enter lawyer's full name"
                       />
@@ -968,6 +1590,8 @@ export default function LawyerConsultationAdmin() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
                       <input
                         type="email"
+                        value={newLawyerForm.email}
+                        onChange={(e) => handleFormChange('email', e.target.value)}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Enter lawyer's email"
                       />
@@ -979,6 +1603,8 @@ export default function LawyerConsultationAdmin() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
                       <input
                         type="tel"
+                        value={newLawyerForm.phone}
+                        onChange={(e) => handleFormChange('phone', e.target.value)}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Enter lawyer's phone number"
                       />
@@ -987,6 +1613,8 @@ export default function LawyerConsultationAdmin() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">Experience (Years)</label>
                       <input
                         type="number"
+                        value={newLawyerForm.experience}
+                        onChange={(e) => handleFormChange('experience', parseInt(e.target.value))}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder="Enter years of experience"
                       />
@@ -998,16 +1626,16 @@ export default function LawyerConsultationAdmin() {
                     <div className="flex flex-wrap gap-2 mb-2">
                       {['Family Law', 'Property Law', 'Criminal Law', 'Corporate Law', 'Consumer Rights'].map((spec) => (
                         <label key={spec} className="inline-flex items-center">
-                          <input type="checkbox" className="rounded text-blue-600" />
+                          <input 
+                            type="checkbox" 
+                            checked={newLawyerForm.specializations.includes(spec)}
+                            onChange={(e) => handleSpecializationChange(spec, e.target.checked)}
+                            className="rounded text-blue-600" 
+                          />
                           <span className="ml-2 text-sm text-gray-700">{spec}</span>
                         </label>
                       ))}
                     </div>
-                    <input
-                      type="text"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Add other specializations"
-                    />
                   </div>
 
                   <div>
@@ -1015,31 +1643,39 @@ export default function LawyerConsultationAdmin() {
                     <div className="flex flex-wrap gap-2 mb-2">
                       {['Hindi', 'English', 'Punjabi', 'Gujarati', 'Bengali'].map((lang) => (
                         <label key={lang} className="inline-flex items-center">
-                          <input type="checkbox" className="rounded text-blue-600" />
+                          <input 
+                            type="checkbox" 
+                            checked={newLawyerForm.languages.includes(lang)}
+                            onChange={(e) => handleLanguageChange(lang, e.target.checked)}
+                            className="rounded text-blue-600" 
+                          />
                           <span className="ml-2 text-sm text-gray-700">{lang}</span>
                         </label>
                       ))}
                     </div>
-                    <input
-                      type="text"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Add other languages"
-                    />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                      <select className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                      <select 
+                        value={newLawyerForm.status}
+                        onChange={(e) => handleFormChange('status', e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
                         <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Verification</label>
-                      <select className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        <option value="verified">Verified</option>
-                        <option value="unverified">Unverified</option>
+                      <select 
+                        value={newLawyerForm.isVerified.toString()}
+                        onChange={(e) => handleFormChange('isVerified', e.target.value === 'true')}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="true">Verified</option>
+                        <option value="false">Unverified</option>
                       </select>
                     </div>
                   </div>
@@ -1047,10 +1683,26 @@ export default function LawyerConsultationAdmin() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Profile Photo</label>
                     <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center">
-                        <User className="w-8 h-8 text-gray-400" />
+                      <div className="relative">
+                        <img
+                          src={previewImage || newLawyerForm.avatar}
+                          alt="Preview"
+                          className="w-16 h-16 rounded-full object-cover"
+                        />
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileUpload}
+                          accept="image/*"
+                          className="hidden"
+                        />
                       </div>
-                      <button className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
+                      <button 
+                        type="button"
+                        onClick={triggerFileInput}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                      >
+                        <Upload className="w-4 h-4" />
                         Upload Photo
                       </button>
                     </div>
@@ -1059,12 +1711,18 @@ export default function LawyerConsultationAdmin() {
               </div>
               <div className="p-6 border-t flex justify-end gap-3">
                 <button
-                  onClick={() => setShowAddLawyer(false)}
+                  onClick={() => {
+                    setShowAddLawyer(false);
+                    setPreviewImage(null);
+                  }}
                   className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
                 >
                   Cancel
                 </button>
-                <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <button 
+                  onClick={handleAddLawyer}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
                   Add Lawyer
                 </button>
               </div>
